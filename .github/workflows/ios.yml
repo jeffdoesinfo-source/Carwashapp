@@ -1,0 +1,20 @@
+name: iOS Build (macOS runner)
+
+on:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install CocoaPods
+        run: sudo gem install cocoapods
+      - name: Install pods
+        working-directory: ios/App
+        run: pod install || true
+      - name: Build (placeholder)
+        run: |
+          echo "This job is a starting template. Configure code signing and schemes before running."
+          echo "xcodebuild -workspace ios/App/App.xcworkspace -scheme App -configuration Release"
