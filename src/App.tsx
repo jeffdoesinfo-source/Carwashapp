@@ -465,9 +465,10 @@ return () => {
         : item,
     );
 
-    saveFraudChecks(updatedFraudChecks);
-    setFraudChecks(updatedFraudChecks);
-    void syncFraudChecksToFirebase(updatedFraudChecks);
+   await syncFraudChecksToFirebase(updatedFraudChecks);
+
+saveFraudChecks(updatedFraudChecks);
+setFraudChecks(updatedFraudChecks);
 
     const fraudLocationId = appLocationId || target.location;
     createHistoryEntry(
@@ -494,10 +495,12 @@ return () => {
     };
 
     const currentSchedules = loadSchedules();
-    const updatedSchedules = [...currentSchedules, newItem];
-    saveSchedules(updatedSchedules);
-    setSchedules(updatedSchedules);
-    void syncSchedulesToFirebase(updatedSchedules);
+const updatedSchedules = [...currentSchedules, newItem];
+
+await syncSchedulesToFirebase(updatedSchedules);
+
+saveSchedules(updatedSchedules);
+setSchedules(updatedSchedules);
 
     createHistoryEntry(
       'Schedule added',
@@ -525,28 +528,50 @@ return () => {
       locationId: appLocationId,
     };
 
-    const currentInventory = loadInventory();
-    const updatedInventory = [...currentInventory, newItem];
-    saveInventory(updatedInventory);
-    setInventory(updatedInventory);
-    void syncInventoryToFirebase(updatedInventory);
+   const currentInventory = loadInventory();
+const updatedInventory = [...currentInventory, newItem];
+
+await syncInventoryToFirebase(updatedInventory);
+
+saveInventory(updatedInventory);
+setInventory(updatedInventory);
 
     createHistoryEntry('Inventory added', `${newInventory.name} x${newInventory.quantity}`, appLocationId);
     setNewInventory({ name: '', quantity: 0, notes: '' });
   };
 
-  const handleDeleteInventory = async (itemId: string) => {
-    if (!currentUser || currentUser.role !== 'Admin') return;
-    const itemToDelete = inventory.find((item) => item.id === itemId);
-    if (!itemToDelete) return;
-    if (!window.confirm(`Delete inventory item ${itemToDelete.name}?`)) return;
+ const handleDeleteInventory = async (itemId: string) => {
+  if (!currentUser || currentUser.role !== 'Admin') return;
 
-    const updatedInventory = inventory.filter((item) => item.id !== itemId);
+  const itemToDelete = inventory.find(
+    (item) => item.id === itemId
+  );
+
+  if (!itemToDelete) return;
+
+  if (!window.confirm(`Delete inventory item ${itemToDelete.name}?`)) {
+    return;
+  }
+
+  const updatedInventory = inventory.filter(
+    (item) => item.id !== itemId
+  );
+
+  try {
+    await syncInventoryToFirebase(updatedInventory);
+
     setInventory(updatedInventory);
     saveInventory(updatedInventory);
-    void syncInventoryToFirebase(updatedInventory);
-    createHistoryEntry('Inventory removed', `${itemToDelete.name} removed from inventory`, itemToDelete.locationId);
-  };
+
+    createHistoryEntry(
+      'Inventory removed',
+      `${itemToDelete.name} removed from inventory`,
+      itemToDelete.locationId
+    );
+  } catch (err) {
+    console.error('Delete sync failed:', err);
+  }
+};
 
   const handleAdjustInventory = async (itemId: string, delta: number) => {
     if (!currentUser || !appLocationId) return;
@@ -556,9 +581,17 @@ return () => {
         ? { ...item, quantity: Math.max(0, item.quantity + delta) }
         : item,
     );
-    saveInventory(updatedInventory);
-    void syncInventoryToFirebase(updatedInventory);
-    setInventory(updatedInventory.filter((item) => currentUser.role === 'Admin' || item.locationId === appLocationId));
+   await syncInventoryToFirebase(updatedInventory);
+
+saveInventory(updatedInventory);
+
+setInventory(
+  updatedInventory.filter(
+    (item) =>
+      currentUser.role === 'Admin' ||
+      item.locationId === appLocationId
+  )
+);
 
     const changedItem = updatedInventory.find((item) => item.id === itemId);
     if (changedItem) {
@@ -584,10 +617,17 @@ return () => {
     const updatedInventory = currentInventory.map((item) =>
       item.id === itemId ? { ...item, quantity } : item,
     );
-    saveInventory(updatedInventory);
-    void syncInventoryToFirebase(updatedInventory);
-    setInventory(updatedInventory.filter((item) => currentUser.role === 'Admin' || item.locationId === appLocationId));
+    await syncInventoryToFirebase(updatedInventory);
 
+saveInventory(updatedInventory);
+
+setInventory(
+  updatedInventory.filter(
+    (item) =>
+      currentUser.role === 'Admin' ||
+      item.locationId === appLocationId
+  )
+);
     createHistoryEntry(
       'Inventory quantity set',
       `${target.name} quantity changed to ${quantity}`,
@@ -606,11 +646,13 @@ return () => {
       locationId: appLocationId,
     };
 
-    const currentCancelRequests = loadCancelRequests();
-    const updatedCancelRequests = [...currentCancelRequests, newItem];
-    saveCancelRequests(updatedCancelRequests);
-    setCancelRequests(updatedCancelRequests);
-    void syncCancelRequestsToFirebase(updatedCancelRequests);
+   const currentCancelRequests = loadCancelRequests();
+const updatedCancelRequests = [...currentCancelRequests, newItem];
+
+await syncCancelRequestsToFirebase(updatedCancelRequests);
+
+saveCancelRequests(updatedCancelRequests);
+setCancelRequests(updatedCancelRequests);
 
     createHistoryEntry('Cancel request added', `${newCancel.customerName} / ${newCancel.licensePlate}`, appLocationId);
     setNewCancel({ customerName: '', licensePlate: '', reason: '' });
@@ -626,11 +668,13 @@ return () => {
       createdAt: new Date().toISOString(),
     };
 
-    const currentFraudChecks = loadFraudChecks();
-    const updatedFraudChecks = [...currentFraudChecks, newItem];
-    saveFraudChecks(updatedFraudChecks);
-    setFraudChecks(updatedFraudChecks);
-    void syncFraudChecksToFirebase(updatedFraudChecks);
+   const currentFraudChecks = loadFraudChecks();
+const updatedFraudChecks = [...currentFraudChecks, newItem];
+
+await syncFraudChecksToFirebase(updatedFraudChecks);
+
+saveFraudChecks(updatedFraudChecks);
+setFraudChecks(updatedFraudChecks);
 
     const fraudLocationId = appLocationId || currentUser.locationId;
     createHistoryEntry('Fraud plate check added', `${newFraud.customerName} / ${newFraud.licensePlate}`, fraudLocationId);
@@ -699,13 +743,23 @@ return () => {
     if (!userToDelete) return;
     if (!window.confirm(`Delete user ${userToDelete.username}? This action cannot be undone.`)) return;
 
-    const updatedUsers = users.filter((user) => user.id !== userId);
-    setUsers(updatedUsers);
-    saveLocalUsers(updatedUsers);
-    await saveLocalUsersAsync(updatedUsers);
-    void syncUsersToFirebase(updatedUsers);
-    createHistoryEntry('User deleted', `${userToDelete.username} removed`, userToDelete.locationId);
-  };
+   const updatedUsers = users.filter((user) => user.id !== userId);
+
+try {
+  await syncUsersToFirebase(updatedUsers);
+
+  setUsers(updatedUsers);
+  saveLocalUsers(updatedUsers);
+  await saveLocalUsersAsync(updatedUsers);
+
+  createHistoryEntry(
+    'User deleted',
+    `${userToDelete.username} removed`,
+    userToDelete.locationId
+  );
+} catch (err) {
+  console.error('Failed to delete user in Firebase:', err);
+}
 
   const handleEditUser = (user: User) => {
     setEditingUserId(user.id);
@@ -734,12 +788,13 @@ return () => {
       lowInventoryThreshold: newLocationThreshold,
     };
 
-    const currentLocations = loadLocations();
-    const updatedLocations = [...currentLocations, newLocation];
-    saveLocations(updatedLocations);
-    setLocations(updatedLocations);
-    void syncLocationsToFirebase(updatedLocations);
+ const currentLocations = loadLocations();
+const updatedLocations = [...currentLocations, newLocation];
 
+await syncLocationsToFirebase(updatedLocations);
+
+saveLocations(updatedLocations);
+setLocations(updatedLocations);
     createHistoryEntry('Location added', newLocationName, newLocation.id);
     setNewLocationName('');
     setNewLocationThreshold(5);
@@ -762,17 +817,19 @@ return () => {
             }
           : item,
       );
-      saveSchedules(updatedSchedules);
-      setSchedules(updatedSchedules);
-      void syncSchedulesToFirebase(updatedSchedules);
+      await syncSchedulesToFirebase(updatedSchedules);
+
+saveSchedules(updatedSchedules);
+setSchedules(updatedSchedules);
     } else if (collectionName === 'cancelRequests') {
       const currentCancelRequests = loadCancelRequests();
       const updatedCancelRequests = currentCancelRequests.map(item =>
         item.id === itemId ? { ...item, done: !currentValue } : item
       );
-      saveCancelRequests(updatedCancelRequests);
-      setCancelRequests(updatedCancelRequests);
-      void syncCancelRequestsToFirebase(updatedCancelRequests);
+     await syncCancelRequestsToFirebase(updatedCancelRequests);
+
+saveCancelRequests(updatedCancelRequests);
+setCancelRequests(updatedCancelRequests);
     }
 
     createHistoryEntry(`${label} updated`, details, appLocationId);
@@ -1569,14 +1626,16 @@ return () => {
                       const updatedLocations = locations.map((loc) =>
                         loc.id === location.id ? { ...loc, lowInventoryThreshold: threshold } : loc,
                       );
-                      saveLocations(updatedLocations);
-                      setLocations(updatedLocations);
-                      void syncLocationsToFirebase(updatedLocations);
-                      setLocationThresholdEdits((prev) => {
-                        const next = { ...prev };
-                        delete next[location.id];
-                        return next;
-                      });
+                     await syncLocationsToFirebase(updatedLocations);
+
+saveLocations(updatedLocations);
+setLocations(updatedLocations);
+
+setLocationThresholdEdits((prev) => {
+  const next = { ...prev };
+  delete next[location.id];
+  return next;
+});
                       createHistoryEntry(
                         'Location threshold updated',
                         `${location.name} low inventory threshold set to ${threshold}`,
