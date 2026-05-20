@@ -407,6 +407,51 @@ function App() {
     setNewInventory({ name: '', quantity: 0, notes: '' });
   };
 
+  const handleAdjustInventory = async (itemId: string, delta: number) => {
+    if (!currentUser || !appLocationId) return;
+    const currentInventory = loadInventory();
+    const updatedInventory = currentInventory.map((item) =>
+      item.id === itemId
+        ? { ...item, quantity: Math.max(0, item.quantity + delta) }
+        : item,
+    );
+    saveInventory(updatedInventory);
+    setInventory(updatedInventory.filter((item) => currentUser.role === 'Admin' || item.locationId === appLocationId));
+
+    const changedItem = updatedInventory.find((item) => item.id === itemId);
+    if (changedItem) {
+      createHistoryEntry(
+        'Inventory updated',
+        `${changedItem.name} quantity ${delta >= 0 ? 'increased' : 'decreased'} by ${Math.abs(delta)} to ${changedItem.quantity}`,
+        appLocationId,
+      );
+    }
+  };
+
+  const handleEditInventoryQuantity = async (itemId: string) => {
+    if (!currentUser || !appLocationId) return;
+    const currentInventory = loadInventory();
+    const target = currentInventory.find((item) => item.id === itemId);
+    if (!target) return;
+
+    const response = window.prompt('Enter new quantity for ' + target.name, String(target.quantity));
+    if (response === null) return;
+    const quantity = Number(response);
+    if (Number.isNaN(quantity) || quantity < 0) return;
+
+    const updatedInventory = currentInventory.map((item) =>
+      item.id === itemId ? { ...item, quantity } : item,
+    );
+    saveInventory(updatedInventory);
+    setInventory(updatedInventory.filter((item) => currentUser.role === 'Admin' || item.locationId === appLocationId));
+
+    createHistoryEntry(
+      'Inventory quantity set',
+      `${target.name} quantity changed to ${quantity}`,
+      appLocationId,
+    );
+  };
+
   const handleAddCancel = async () => {
     if (!currentUser || !appLocationId || !newCancel.customerName || !newCancel.licensePlate) return;
 
@@ -865,6 +910,7 @@ function App() {
                   <th>Item</th>
                   <th>Quantity</th>
                   <th>Notes</th>
+                  <th>Adjust</th>
                 </tr>
               </thead>
               <tbody>
@@ -873,6 +919,11 @@ function App() {
                     <td>{item.name}</td>
                     <td>{item.quantity}</td>
                     <td>{item.notes}</td>
+                    <td>
+                      <button className="small" onClick={() => handleAdjustInventory(item.id, -1)}>-</button>
+                      <button className="small" onClick={() => handleAdjustInventory(item.id, 1)}>+</button>
+                      <button className="small" onClick={() => handleEditInventoryQuantity(item.id)}>Edit</button>
+                    </td>
                   </tr>
                 ))}
                 {inventory.length === 0 && (
