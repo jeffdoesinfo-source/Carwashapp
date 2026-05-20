@@ -171,13 +171,14 @@ useEffect(() => {
     if (!remoteUsers && effectiveUsers.length === 0) {
       const locationId = localLocations[0]?.id || localDefaultLocation.id;
 
-      const seededUser: User = {
-        id: generateId(),
-        username: 'JeffArmstrong',
-        password: 'ArmstrongFam2024!',
-        role: 'Admin',
-        locationId,
-      };
+     const userCred = await createUserWithEmailAndPassword(auth, email, password);
+const uid = userCred.user.uid;
+
+await setDoc(doc(db, "users", uid), {
+  username,
+  role,
+  locationId,
+});
 
       effectiveUsers = [seededUser];
 
