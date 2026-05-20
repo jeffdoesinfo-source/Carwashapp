@@ -173,7 +173,12 @@ useEffect(() => {
 
      const userCred = await createUserWithEmailAndPassword(auth, email, password);
 const uid = userCred.user.uid;
-
+{
+  username: "JeffArmstrong",
+  role: "Admin",
+  locationId: "5be6a514-79e8-41a4-81ce-16d7fdb20cbd",
+  permissions: ["Dashboard", "Inventory"]
+}
 await setDoc(doc(db, "users", uid), {
   username,
   role,
