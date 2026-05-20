@@ -9,13 +9,17 @@ const firebaseConfig = {
   measurementId: 'G-CKLWXQXMT8',
 };
 
-// Note: Firebase is not currently used - all data is stored locally
-// Uncomment the following lines if you want to re-enable Firebase:
-// import { initializeApp } from 'firebase/app';
-// import { getAnalytics } from 'firebase/analytics';
-// import { getFirestore } from 'firebase/firestore';
-//
-// const app = initializeApp(firebaseConfig);
-// const analytics = getAnalytics(app);
-// export const db = getFirestore(app);
-// export { analytics };
+import { initializeApp } from 'firebase/app';
+import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
+
+const app = initializeApp(firebaseConfig);
+export const db = getFirestore(app);
+
+// Enable offline persistence so the app works when offline
+try {
+  enableIndexedDbPersistence(db);
+} catch (err: any) {
+  if (err.code !== 'failed-precondition' && err.code !== 'unimplemented') {
+    console.error('Failed to enable persistence:', err);
+  }
+}

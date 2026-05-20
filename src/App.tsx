@@ -18,6 +18,31 @@ import {
   saveHistory,
   loadNotifications,
   saveNotifications,
+  loadUsersFromFirebase,
+  loadLocationsFromFirebase,
+  loadInventoryFromFirebase,
+  loadSchedulesFromFirebase,
+  loadCancelRequestsFromFirebase,
+  loadFraudChecksFromFirebase,
+  syncUsersToFirebase,
+  syncInventoryToFirebase,
+  syncSchedulesToFirebase,
+  syncCancelRequestsToFirebase,
+  syncFraudChecksToFirebase,
+  syncLocationsToFirebase,
+  listenToUsersUpdates,
+  listenToInventoryUpdates,
+  listenToSchedulesUpdates,
+  listenToCancelRequestsUpdates,
+  listenToFraudChecksUpdates,
+  listenToLocationsUpdates,
+  setUsersUpdateCallback,
+  setInventoryUpdateCallback,
+  setSchedulesUpdateCallback,
+  setCancelRequestsUpdateCallback,
+  setFraudChecksUpdateCallback,
+  setLocationsUpdateCallback,
+  unsubscribeFromAllUpdates,
 } from './utils/storage';
 import type {
   CancelRequest,
@@ -125,65 +150,112 @@ function App() {
   }, [users, appLocationId, currentUser, selectedLocationId]);
 
   useEffect(() => {
-    const loadAll = async () => {
-      const storedUsers = await loadLocalUsersAsync();
-      setUsers(storedUsers);
-      setUsersLoaded(true);
+    const initializeApp = async () => {
+      const localUsers = await loadLocalUsersAsync();
+      const localLocations = loadLocations();
+      const localInventory = loadInventory();
+      const localSchedules = loadSchedules();
+      const localCancelRequests = loadCancelRequests();
+      const localFraudChecks = loadFraudChecks();
 
-      // Load all data from local storage (sync)
-      setLocations(loadLocations());
-      setInventory(loadInventory());
-      setSchedules(loadSchedules());
-      setCancelRequests(loadCancelRequests());
-      setFraudChecks(loadFraudChecks());
+      const remoteUsers = await loadUsersFromFirebase();
+      const remoteLocations = await loadLocationsFromFirebase();
+      const remoteInventory = await loadInventoryFromFirebase();
+      const remoteSchedules = await loadSchedulesFromFirebase();
+      const remoteCancelRequests = await loadCancelRequestsFromFirebase();
+      const remoteFraudChecks = await loadFraudChecksFromFirebase();
+
+      const usersFromServer = remoteUsers ?? localUsers;
+      let effectiveUsers = usersFromServer;
+      if (!remoteUsers && effectiveUsers.length === 0) {
+        const locationId = localLocations[0]?.id || localDefaultLocation.id;
+        const seededUser: User = {
+          id: generateId(),
+          username: 'JeffArmstrong',
+          password: 'ArmstrongFam2024!',
+          role: 'Admin',
+          locationId,
+        };
+        effectiveUsers = [seededUser];
+        saveLocalUsers(effectiveUsers);
+        await saveLocalUsersAsync(effectiveUsers);
+        await syncUsersToFirebase(effectiveUsers);
+      } else if (remoteUsers) {
+        saveLocalUsers(effectiveUsers);
+        await saveLocalUsersAsync(effectiveUsers);
+      }
+
+      const effectiveLocations = remoteLocations ?? (localLocations.length > 0 ? localLocations : [localDefaultLocation]);
+      saveLocations(effectiveLocations);
+      if (!remoteLocations && localLocations.length > 0) {
+        await syncLocationsToFirebase(effectiveLocations);
+      }
+      if (remoteLocations && localLocations.length === 0) {
+        saveLocations(remoteLocations);
+      }
+
+      const effectiveInventory = remoteInventory ?? localInventory;
+      saveInventory(effectiveInventory);
+      if (!remoteInventory && localInventory.length > 0) {
+        await syncInventoryToFirebase(effectiveInventory);
+      }
+
+      const effectiveSchedules = remoteSchedules ?? localSchedules;
+      saveSchedules(effectiveSchedules);
+      if (!remoteSchedules && localSchedules.length > 0) {
+        await syncSchedulesToFirebase(effectiveSchedules);
+      }
+
+      const effectiveCancelRequests = remoteCancelRequests ?? localCancelRequests;
+      saveCancelRequests(effectiveCancelRequests);
+      if (!remoteCancelRequests && localCancelRequests.length > 0) {
+        await syncCancelRequestsToFirebase(effectiveCancelRequests);
+      }
+
+      const effectiveFraudChecks = remoteFraudChecks ?? localFraudChecks;
+      saveFraudChecks(effectiveFraudChecks);
+      if (!remoteFraudChecks && localFraudChecks.length > 0) {
+        await syncFraudChecksToFirebase(effectiveFraudChecks);
+      }
+
+      setUsers(effectiveUsers);
+      setUsersLoaded(true);
+      setLocations(effectiveLocations);
+      setInventory(effectiveInventory);
+      setSchedules(effectiveSchedules);
+      setCancelRequests(effectiveCancelRequests);
+      setFraudChecks(effectiveFraudChecks);
       setHistory(loadHistory());
       setNotifications(loadNotifications());
       setLocationsLoaded(true);
+
+      setUsersUpdateCallback(setUsers);
+      setLocationsUpdateCallback(setLocations);
+      setInventoryUpdateCallback(setInventory);
+      setSchedulesUpdateCallback(setSchedules);
+      setCancelRequestsUpdateCallback(setCancelRequests);
+      setFraudChecksUpdateCallback(setFraudChecks);
+
+      listenToUsersUpdates();
+      listenToLocationsUpdates();
+      listenToInventoryUpdates();
+      listenToSchedulesUpdates();
+      listenToCancelRequestsUpdates();
+      listenToFraudChecksUpdates();
+
+      setDefaultAdminSeeded(true);
     };
 
-    void loadAll();
-  }, []);
-
-  useEffect(() => {
-    if (!currentUser) {
-      setInventory([]);
-      setSchedules([]);
-      setCancelRequests([]);
-      setHistory([]);
-      setNotifications([]);
-      return;
+    if (!defaultAdminSeeded) {
+      void initializeApp();
     }
 
-    const locationId = appLocationId;
-    const allInventory = loadInventory();
-    const allSchedules = loadSchedules();
-    const allCancelRequests = loadCancelRequests();
-    const allHistory = loadHistory();
-    const allNotifications = loadNotifications();
-
-    if (currentUser.role === 'Admin') {
-      if (selectedLocationId === ALL_LOCATIONS_ID) {
-        setInventory(allInventory);
-        setSchedules(allSchedules);
-        setCancelRequests(allCancelRequests);
-        setHistory(allHistory);
-        setNotifications(allNotifications);
-      } else {
-        setInventory(allInventory.filter(item => item.locationId === locationId));
-        setSchedules(allSchedules.filter(item => item.locationId === locationId));
-        setCancelRequests(allCancelRequests.filter(item => item.locationId === locationId));
-        setHistory(allHistory.filter(item => item.locationId === locationId));
-        setNotifications(allNotifications.filter(item => item.locationId === locationId));
+    return () => {
+      if (defaultAdminSeeded) {
+        unsubscribeFromAllUpdates();
       }
-    } else {
-      if (!locationId) return;
-      setInventory(allInventory.filter(item => item.locationId === locationId));
-      setSchedules(allSchedules.filter(item => item.locationId === locationId));
-      setCancelRequests(allCancelRequests.filter(item => item.locationId === locationId));
-      setHistory(allHistory.filter(item => item.locationId === locationId));
-      setNotifications(allNotifications.filter(item => item.locationId === locationId));
-    }
-  }, [currentUser, appLocationId, selectedLocationId]);
+    };
+  }, [defaultAdminSeeded]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -193,34 +265,6 @@ function App() {
       setSelectedLocationId(currentUser.locationId);
     }
   }, [currentUser, locations]);
-
-  useEffect(() => {
-    if (defaultAdminSeeded) return;
-    if (users.length > 0) return;
-
-      const seedDefaultAdmin = async () => {
-      const locationId = locations[0]?.id || localDefaultLocation.id;
-      const seededUser: User = {
-        id: generateId(),
-        username: 'JeffArmstrong',
-        password: 'ArmstrongFam2024!',
-        role: 'Admin',
-        locationId,
-      };
-
-      setUsers([seededUser]);
-      await saveLocalUsersAsync([seededUser]);
-      if (locations.length === 0) {
-        const defaultLocations = [localDefaultLocation];
-        setLocations(defaultLocations);
-        saveLocations(defaultLocations);
-        setLocationsLoaded(true);
-      }
-      setDefaultAdminSeeded(true);
-    };
-
-    void seedDefaultAdmin();
-  }, [defaultAdminSeeded, users.length, locations]);
 
   function createHistoryEntry(label: string, details: string, locationId: string) {
     const newEntry: HistoryEntry = {
@@ -408,6 +452,7 @@ function App() {
 
     saveFraudChecks(updatedFraudChecks);
     setFraudChecks(updatedFraudChecks);
+    void syncFraudChecksToFirebase(updatedFraudChecks);
 
     const fraudLocationId = appLocationId || target.location;
     createHistoryEntry(
@@ -437,6 +482,7 @@ function App() {
     const updatedSchedules = [...currentSchedules, newItem];
     saveSchedules(updatedSchedules);
     setSchedules(updatedSchedules);
+    void syncSchedulesToFirebase(updatedSchedules);
 
     createHistoryEntry(
       'Schedule added',
@@ -468,9 +514,23 @@ function App() {
     const updatedInventory = [...currentInventory, newItem];
     saveInventory(updatedInventory);
     setInventory(updatedInventory);
+    void syncInventoryToFirebase(updatedInventory);
 
     createHistoryEntry('Inventory added', `${newInventory.name} x${newInventory.quantity}`, appLocationId);
     setNewInventory({ name: '', quantity: 0, notes: '' });
+  };
+
+  const handleDeleteInventory = async (itemId: string) => {
+    if (!currentUser || currentUser.role !== 'Admin') return;
+    const itemToDelete = inventory.find((item) => item.id === itemId);
+    if (!itemToDelete) return;
+    if (!window.confirm(`Delete inventory item ${itemToDelete.name}?`)) return;
+
+    const updatedInventory = inventory.filter((item) => item.id !== itemId);
+    setInventory(updatedInventory);
+    saveInventory(updatedInventory);
+    void syncInventoryToFirebase(updatedInventory);
+    createHistoryEntry('Inventory removed', `${itemToDelete.name} removed from inventory`, itemToDelete.locationId);
   };
 
   const handleAdjustInventory = async (itemId: string, delta: number) => {
@@ -482,6 +542,7 @@ function App() {
         : item,
     );
     saveInventory(updatedInventory);
+    void syncInventoryToFirebase(updatedInventory);
     setInventory(updatedInventory.filter((item) => currentUser.role === 'Admin' || item.locationId === appLocationId));
 
     const changedItem = updatedInventory.find((item) => item.id === itemId);
@@ -509,6 +570,7 @@ function App() {
       item.id === itemId ? { ...item, quantity } : item,
     );
     saveInventory(updatedInventory);
+    void syncInventoryToFirebase(updatedInventory);
     setInventory(updatedInventory.filter((item) => currentUser.role === 'Admin' || item.locationId === appLocationId));
 
     createHistoryEntry(
@@ -533,6 +595,7 @@ function App() {
     const updatedCancelRequests = [...currentCancelRequests, newItem];
     saveCancelRequests(updatedCancelRequests);
     setCancelRequests(updatedCancelRequests);
+    void syncCancelRequestsToFirebase(updatedCancelRequests);
 
     createHistoryEntry('Cancel request added', `${newCancel.customerName} / ${newCancel.licensePlate}`, appLocationId);
     setNewCancel({ customerName: '', licensePlate: '', reason: '' });
@@ -552,6 +615,7 @@ function App() {
     const updatedFraudChecks = [...currentFraudChecks, newItem];
     saveFraudChecks(updatedFraudChecks);
     setFraudChecks(updatedFraudChecks);
+    void syncFraudChecksToFirebase(updatedFraudChecks);
 
     const fraudLocationId = appLocationId || currentUser.locationId;
     createHistoryEntry('Fraud plate check added', `${newFraud.customerName} / ${newFraud.licensePlate}`, fraudLocationId);
@@ -594,7 +658,9 @@ function App() {
         ];
 
     setUsers(updatedUsers);
+    saveLocalUsers(updatedUsers);
     await saveLocalUsersAsync(updatedUsers);
+    await syncUsersToFirebase(updatedUsers);
 
     if (editingUserId) {
       createHistoryEntry('User updated', `${newUser.username} as ${newUser.role}`, newUser.locationId);
@@ -606,6 +672,24 @@ function App() {
 
     setEditingUserId(null);
     setNewUser({ username: '', password: '', role: 'Crew', locationId: locations[0]?.id || '', permissions: getDefaultPermissions('Crew') });
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    if (!currentUser || currentUser.role !== 'Admin') return;
+    if (userId === currentUser.id) {
+      setActionMessage('You cannot delete the currently signed-in account.');
+      return;
+    }
+    const userToDelete = users.find((user) => user.id === userId);
+    if (!userToDelete) return;
+    if (!window.confirm(`Delete user ${userToDelete.username}? This action cannot be undone.`)) return;
+
+    const updatedUsers = users.filter((user) => user.id !== userId);
+    setUsers(updatedUsers);
+    saveLocalUsers(updatedUsers);
+    await saveLocalUsersAsync(updatedUsers);
+    void syncUsersToFirebase(updatedUsers);
+    createHistoryEntry('User deleted', `${userToDelete.username} removed`, userToDelete.locationId);
   };
 
   const handleEditUser = (user: User) => {
@@ -639,6 +723,7 @@ function App() {
     const updatedLocations = [...currentLocations, newLocation];
     saveLocations(updatedLocations);
     setLocations(updatedLocations);
+    void syncLocationsToFirebase(updatedLocations);
 
     createHistoryEntry('Location added', newLocationName, newLocation.id);
     setNewLocationName('');
@@ -664,6 +749,7 @@ function App() {
       );
       saveSchedules(updatedSchedules);
       setSchedules(updatedSchedules);
+      void syncSchedulesToFirebase(updatedSchedules);
     } else if (collectionName === 'cancelRequests') {
       const currentCancelRequests = loadCancelRequests();
       const updatedCancelRequests = currentCancelRequests.map(item =>
@@ -671,6 +757,7 @@ function App() {
       );
       saveCancelRequests(updatedCancelRequests);
       setCancelRequests(updatedCancelRequests);
+      void syncCancelRequestsToFirebase(updatedCancelRequests);
     }
 
     createHistoryEntry(`${label} updated`, details, appLocationId);
@@ -687,8 +774,7 @@ function App() {
     if (!availableTabs.includes(activeTab)) {
       setActiveTab(availableTabs[0] || 'Dashboard');
     }
-  }, [availableTabs, activeTab, currentUser]);
-
+  }, [availableTabs, activeTab, currentUser])
   if (!currentUser) {
     return (
       <div className="app-shell">
@@ -712,8 +798,9 @@ function App() {
           </div>
           {loginError && <div className="alert">{loginError}</div>}
           <button className="primary" onClick={handleLogin} disabled={!usersLoaded}>
-            {usersLoaded ? 'Sign In' : 'Loading...'}
+            Sign In
           </button>
+          {!usersLoaded && <p>Loading user data before login...</p>}
           {statusMessage && <p>{statusMessage}</p>}
           {actionMessage && <div className="alert">{actionMessage}</div>}
           <div className="alert" style={{ marginTop: 20 }}>
@@ -1026,6 +1113,7 @@ function App() {
                   <th>Title</th>
                   <th>Type</th>
                   <th>Assigned</th>
+                  <th>Completed by</th>
                   <th>Status</th>
                 </tr>
               </thead>
@@ -1037,7 +1125,13 @@ function App() {
                     <td>{item.title}</td>
                     <td>{item.type}</td>
                     <td>{item.assignedTo || '—'}</td>
-                    <td>{item.completedBy ? `Completed by ${item.completedBy}` : 'Open'}</td>
+                    <td>
+                      {item.completedBy ? (
+                        <span className="badge done">Completed by {item.completedBy}</span>
+                      ) : (
+                        <span className="badge pending">Open</span>
+                      )}
+                    </td>
                     <td>
                       {!item.done ? (
                         <button
@@ -1112,7 +1206,7 @@ function App() {
                   <th>Item</th>
                   <th>Quantity</th>
                   <th>Notes</th>
-                  <th>Adjust</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1125,12 +1219,13 @@ function App() {
                       <button className="small" onClick={() => handleAdjustInventory(item.id, -1)}>-</button>
                       <button className="small" onClick={() => handleAdjustInventory(item.id, 1)}>+</button>
                       <button className="small" onClick={() => handleEditInventoryQuantity(item.id)}>Edit</button>
+                      <button className="small danger" onClick={() => handleDeleteInventory(item.id)}>Delete</button>
                     </td>
                   </tr>
                 ))}
                 {inventory.length === 0 && (
                   <tr>
-                    <td colSpan={3}>No inventory items recorded yet.</td>
+                    <td colSpan={4}>No inventory items recorded yet.</td>
                   </tr>
                 )}
               </tbody>
@@ -1461,6 +1556,7 @@ function App() {
                       );
                       saveLocations(updatedLocations);
                       setLocations(updatedLocations);
+                      void syncLocationsToFirebase(updatedLocations);
                       setLocationThresholdEdits((prev) => {
                         const next = { ...prev };
                         delete next[location.id];
@@ -1489,6 +1585,7 @@ function App() {
                   <th>Role</th>
                   <th>Location</th>
                   <th>Permissions</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1502,12 +1599,15 @@ function App() {
                       <button className="small" onClick={() => handleEditUser(user)}>
                         Edit
                       </button>
+                      <button className="small danger" onClick={() => handleDeleteUser(user.id)}>
+                        Delete
+                      </button>
                     </td>
                   </tr>
                 ))}
                 {users.length === 0 && (
                   <tr>
-                    <td colSpan={3}>No users set up yet.</td>
+                    <td colSpan={5}>No users set up yet.</td>
                   </tr>
                 )}
               </tbody>

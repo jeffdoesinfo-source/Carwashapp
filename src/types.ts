@@ -34,6 +34,7 @@ export interface ScheduleItem {
   assignedTo: string;
   locationId: string;
   done: boolean;
+  completedBy?: string;
 }
 
 export interface NotificationItem {
