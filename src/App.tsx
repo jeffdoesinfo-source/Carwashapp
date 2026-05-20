@@ -424,7 +424,7 @@ function App() {
   };
 
   const handleCreateSchedule = async () => {
-    if (!currentUser || !appLocationId || !newSchedule.title || !newSchedule.date) return;
+    if (!currentUser || currentUser.role === 'Crew' || !appLocationId || !newSchedule.title || !newSchedule.date) return;
 
     const newItem: ScheduleItem = {
       id: generateId(),
@@ -648,8 +648,19 @@ function App() {
   const toggleDone = async (collectionName: string, itemId: string, currentValue: boolean, label: string, details: string) => {
     if (collectionName === 'schedules') {
       const currentSchedules = loadSchedules();
+      const targetItem = currentSchedules.find((item) => item.id === itemId);
+      if (!targetItem) return;
+      if (currentUser?.role === 'Crew' && targetItem.type === 'Shift') {
+        return;
+      }
       const updatedSchedules = currentSchedules.map(item =>
-        item.id === itemId ? { ...item, done: !currentValue } : item
+        item.id === itemId
+          ? {
+              ...item,
+              done: !currentValue,
+              completedBy: !currentValue ? currentUser?.username : undefined,
+            }
+          : item,
       );
       saveSchedules(updatedSchedules);
       setSchedules(updatedSchedules);
@@ -861,67 +872,73 @@ function App() {
         <div>
           <div className="section-card">
             <h2>Schedule / Daily Chore Agenda</h2>
-            <div className="field-group">
-              <label>
-                Title
-                <input
-                  value={newSchedule.title}
-                  onChange={(event) => setNewSchedule({ ...newSchedule, title: event.target.value })}
-                />
-              </label>
-              <label>
-                Date
-                <input
-                  type="date"
-                  value={newSchedule.date}
-                  onChange={(event) => setNewSchedule({ ...newSchedule, date: event.target.value })}
-                />
-              </label>
-              <label>
-                Start time
-                <input
-                  type="time"
-                  value={newSchedule.startTime}
-                  onChange={(event) => setNewSchedule({ ...newSchedule, startTime: event.target.value })}
-                />
-              </label>
-              <label>
-                End time
-                <input
-                  type="time"
-                  value={newSchedule.endTime}
-                  onChange={(event) => setNewSchedule({ ...newSchedule, endTime: event.target.value })}
-                />
-              </label>
-              <label>
-                Type
-                <select
-                  value={newSchedule.type}
-                  onChange={(event) => setNewSchedule({ ...newSchedule, type: event.target.value as ScheduleItem['type'] })}
-                >
-                  <option value="Shift">Shift</option>
-                  <option value="Daily Chore">Daily Chore</option>
-                  <option value="Extra Chore">Extra Chore</option>
-                </select>
-              </label>
-              <label>
-                Assigned to
-                <select
-                  value={newSchedule.assignedTo}
-                  onChange={(event) => setNewSchedule({ ...newSchedule, assignedTo: event.target.value })}
-                >
-                  <option value="">Unassigned</option>
-                  {locationUsers.map((user) => (
-                    <option key={user.id} value={user.username}>
-                      {user.username}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <button className="primary" onClick={handleCreateSchedule}>
-              Add schedule item
-            </button>
+            {currentUser.role === 'Crew' ? (
+              <p>Crew members can only mark chores complete. Schedule creation is restricted to Managers and Admins.</p>
+            ) : (
+              <div className="field-group">
+                <label>
+                  Title
+                  <input
+                    value={newSchedule.title}
+                    onChange={(event) => setNewSchedule({ ...newSchedule, title: event.target.value })}
+                  />
+                </label>
+                <label>
+                  Date
+                  <input
+                    type="date"
+                    value={newSchedule.date}
+                    onChange={(event) => setNewSchedule({ ...newSchedule, date: event.target.value })}
+                  />
+                </label>
+                <label>
+                  Start time
+                  <input
+                    type="time"
+                    value={newSchedule.startTime}
+                    onChange={(event) => setNewSchedule({ ...newSchedule, startTime: event.target.value })}
+                  />
+                </label>
+                <label>
+                  End time
+                  <input
+                    type="time"
+                    value={newSchedule.endTime}
+                    onChange={(event) => setNewSchedule({ ...newSchedule, endTime: event.target.value })}
+                  />
+                </label>
+                <label>
+                  Type
+                  <select
+                    value={newSchedule.type}
+                    onChange={(event) => setNewSchedule({ ...newSchedule, type: event.target.value as ScheduleItem['type'] })}
+                  >
+                    <option value="Shift">Shift</option>
+                    <option value="Daily Chore">Daily Chore</option>
+                    <option value="Extra Chore">Extra Chore</option>
+                  </select>
+                </label>
+                <label>
+                  Assigned to
+                  <select
+                    value={newSchedule.assignedTo}
+                    onChange={(event) => setNewSchedule({ ...newSchedule, assignedTo: event.target.value })}
+                  >
+                    <option value="">Unassigned</option>
+                    {locationUsers.map((user) => (
+                      <option key={user.id} value={user.username}>
+                        {user.username}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            )}
+            {currentUser.role !== 'Crew' && (
+              <button className="primary" onClick={handleCreateSchedule}>
+                Add schedule item
+              </button>
+            )}
           </div>
 
           <div className="section-card">
@@ -967,20 +984,26 @@ function App() {
                     <td>{item.title}</td>
                     <td>{item.assignedTo || '—'}</td>
                     <td>
-                      <button
-                        className="small"
-                        onClick={() =>
-                          toggleDone(
-                            'schedules',
-                            item.id,
-                            item.done,
-                            'Shift assignment',
-                            `${item.title} for ${item.assignedTo}`,
-                          )
-                        }
-                      >
-                        {item.done ? 'Done' : 'Mark done'}
-                      </button>
+                      {item.done ? (
+                        'Done'
+                      ) : currentUser.role === 'Crew' ? (
+                        'Manager/Admin only'
+                      ) : (
+                        <button
+                          className="small"
+                          onClick={() =>
+                            toggleDone(
+                              'schedules',
+                              item.id,
+                              item.done,
+                              'Shift assignment',
+                              `${item.title} for ${item.assignedTo}`,
+                            )
+                          }
+                        >
+                          Mark done
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -1014,27 +1037,32 @@ function App() {
                     <td>{item.title}</td>
                     <td>{item.type}</td>
                     <td>{item.assignedTo || '—'}</td>
+                    <td>{item.completedBy ? `Completed by ${item.completedBy}` : 'Open'}</td>
                     <td>
-                      <button
-                        className="small"
-                        onClick={() =>
-                          toggleDone(
-                            'schedules',
-                            item.id,
-                            item.done,
-                            'Chore item',
-                            `${item.title} for ${item.assignedTo}`,
-                          )
-                        }
-                      >
-                        {item.done ? 'Done' : 'Mark done'}
-                      </button>
+                      {!item.done ? (
+                        <button
+                          className="small"
+                          onClick={() =>
+                            toggleDone(
+                              'schedules',
+                              item.id,
+                              item.done,
+                              'Chore item',
+                              `${item.title} for ${item.assignedTo}`,
+                            )
+                          }
+                        >
+                          Mark done
+                        </button>
+                      ) : (
+                        'Done'
+                      )}
                     </td>
                   </tr>
                 ))}
                 {choreSchedules.length === 0 && (
                   <tr>
-                    <td colSpan={6}>No chores scheduled for this location yet.</td>
+                    <td colSpan={7}>No chores scheduled for this location yet.</td>
                   </tr>
                 )}
               </tbody>
