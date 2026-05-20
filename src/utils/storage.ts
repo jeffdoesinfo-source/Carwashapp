@@ -332,9 +332,18 @@ export async function loadFraudChecksFromFirebase(): Promise<FraudCheck[] | null
 // Sync inventory to Firestore
 export async function syncInventoryToFirebase(inventory: InventoryItem[]) {
   if (typeof window === 'undefined') return;
+
   try {
+    console.log('SYNCING TO FIREBASE', inventory);
+
     const invRef = doc(db, 'app', 'inventory_data');
-    await setDoc(invRef, { data: inventory, lastUpdated: new Date().toISOString() });
+
+    await setDoc(invRef, {
+      data: inventory,
+      lastUpdated: new Date().toISOString(),
+    });
+
+    console.log('FIREBASE SYNC SUCCESS');
   } catch (err) {
     console.error('Failed to sync inventory to Firebase:', err);
   }
