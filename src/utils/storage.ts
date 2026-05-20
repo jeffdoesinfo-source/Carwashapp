@@ -341,19 +341,30 @@ export async function syncInventoryToFirebase(inventory: InventoryItem[]) {
 }
 
 // Listen for inventory updates from Firestore
-export function listenToInventoryUpdates() {
-  if (typeof window === 'undefined') return;
+export function listenToInventoryUpdates(callback) {
+  if (typeof window === 'undefined') return () => {};
+
   try {
-    unsubscribeInventory = onSnapshot(doc(db, 'app', 'inventory_data'), (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.data();
-        const inventory = data?.data || [];
-        saveInventory(inventory);
-        if (inventoryUpdateCallback) inventoryUpdateCallback(inventory);
+    unsubscribeInventory = onSnapshot(
+      doc(db, 'app', 'inventory_data'),
+      (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+          const inventory = data?.data || [];
+
+          saveInventory(inventory);
+
+          if (callback) {
+            callback(inventory);
+          }
+        }
       }
-    });
+    );
+
+    return unsubscribeInventory;
   } catch (err) {
     console.error('Failed to listen to inventory updates:', err);
+    return () => {};
   }
 }
 
