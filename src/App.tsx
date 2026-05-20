@@ -149,114 +149,129 @@ function App() {
     return users.filter((item) => item.locationId === appLocationId);
   }, [users, appLocationId, currentUser, selectedLocationId]);
 
-  useEffect(() => {
-    const initializeApp = async () => {
-      const localUsers = await loadLocalUsersAsync();
-      const localLocations = loadLocations();
-      const localInventory = loadInventory();
-      const localSchedules = loadSchedules();
-      const localCancelRequests = loadCancelRequests();
-      const localFraudChecks = loadFraudChecks();
+useEffect(() => {
+  const initializeApp = async () => {
+    const localUsers = await loadLocalUsersAsync();
+    const localLocations = loadLocations();
+    const localInventory = loadInventory();
+    const localSchedules = loadSchedules();
+    const localCancelRequests = loadCancelRequests();
+    const localFraudChecks = loadFraudChecks();
 
-      const remoteUsers = await loadUsersFromFirebase();
-      const remoteLocations = await loadLocationsFromFirebase();
-      const remoteInventory = await loadInventoryFromFirebase();
-      const remoteSchedules = await loadSchedulesFromFirebase();
-      const remoteCancelRequests = await loadCancelRequestsFromFirebase();
-      const remoteFraudChecks = await loadFraudChecksFromFirebase();
+    const remoteUsers = await loadUsersFromFirebase();
+    const remoteLocations = await loadLocationsFromFirebase();
+    const remoteInventory = await loadInventoryFromFirebase();
+    const remoteSchedules = await loadSchedulesFromFirebase();
+    const remoteCancelRequests = await loadCancelRequestsFromFirebase();
+    const remoteFraudChecks = await loadFraudChecksFromFirebase();
 
-      const usersFromServer = remoteUsers ?? localUsers;
-      let effectiveUsers = usersFromServer;
-      if (!remoteUsers && effectiveUsers.length === 0) {
-        const locationId = localLocations[0]?.id || localDefaultLocation.id;
-        const seededUser: User = {
-          id: generateId(),
-          username: 'JeffArmstrong',
-          password: 'ArmstrongFam2024!',
-          role: 'Admin',
-          locationId,
-        };
-        effectiveUsers = [seededUser];
-        saveLocalUsers(effectiveUsers);
-        await saveLocalUsersAsync(effectiveUsers);
-        await syncUsersToFirebase(effectiveUsers);
-      } else if (remoteUsers) {
-        saveLocalUsers(effectiveUsers);
-        await saveLocalUsersAsync(effectiveUsers);
-      }
+    const usersFromServer = remoteUsers ?? localUsers;
+    let effectiveUsers = usersFromServer;
 
-      const effectiveLocations = remoteLocations ?? (localLocations.length > 0 ? localLocations : [localDefaultLocation]);
-      saveLocations(effectiveLocations);
-      if (!remoteLocations && localLocations.length > 0) {
-        await syncLocationsToFirebase(effectiveLocations);
-      }
-      if (remoteLocations && localLocations.length === 0) {
-        saveLocations(remoteLocations);
-      }
+    if (!remoteUsers && effectiveUsers.length === 0) {
+      const locationId = localLocations[0]?.id || localDefaultLocation.id;
 
-      const effectiveInventory = remoteInventory ?? localInventory;
-      saveInventory(effectiveInventory);
-      if (!remoteInventory && localInventory.length > 0) {
-        await syncInventoryToFirebase(effectiveInventory);
-      }
+      const seededUser: User = {
+        id: generateId(),
+        username: 'JeffArmstrong',
+        password: 'ArmstrongFam2024!',
+        role: 'Admin',
+        locationId,
+      };
 
-      const effectiveSchedules = remoteSchedules ?? localSchedules;
-      saveSchedules(effectiveSchedules);
-      if (!remoteSchedules && localSchedules.length > 0) {
-        await syncSchedulesToFirebase(effectiveSchedules);
-      }
+      effectiveUsers = [seededUser];
 
-      const effectiveCancelRequests = remoteCancelRequests ?? localCancelRequests;
-      saveCancelRequests(effectiveCancelRequests);
-      if (!remoteCancelRequests && localCancelRequests.length > 0) {
-        await syncCancelRequestsToFirebase(effectiveCancelRequests);
-      }
-
-      const effectiveFraudChecks = remoteFraudChecks ?? localFraudChecks;
-      saveFraudChecks(effectiveFraudChecks);
-      if (!remoteFraudChecks && localFraudChecks.length > 0) {
-        await syncFraudChecksToFirebase(effectiveFraudChecks);
-      }
-
-      setUsers(effectiveUsers);
-      setUsersLoaded(true);
-      setLocations(effectiveLocations);
-      setInventory(effectiveInventory);
-      setSchedules(effectiveSchedules);
-      setCancelRequests(effectiveCancelRequests);
-      setFraudChecks(effectiveFraudChecks);
-      setHistory(loadHistory());
-      setNotifications(loadNotifications());
-      setLocationsLoaded(true);
-
-      setUsersUpdateCallback(setUsers);
-      setLocationsUpdateCallback(setLocations);
-      setInventoryUpdateCallback(setInventory);
-      setSchedulesUpdateCallback(setSchedules);
-      setCancelRequestsUpdateCallback(setCancelRequests);
-      setFraudChecksUpdateCallback(setFraudChecks);
-
-      listenToUsersUpdates();
-      listenToLocationsUpdates();
-      listenToInventoryUpdates();
-      listenToSchedulesUpdates();
-      listenToCancelRequestsUpdates();
-      listenToFraudChecksUpdates();
-
-      setDefaultAdminSeeded(true);
-    };
-
-    if (!defaultAdminSeeded) {
-      void initializeApp();
+      saveLocalUsers(effectiveUsers);
+      await saveLocalUsersAsync(effectiveUsers);
+      await syncUsersToFirebase(effectiveUsers);
+    } else if (remoteUsers) {
+      saveLocalUsers(effectiveUsers);
+      await saveLocalUsersAsync(effectiveUsers);
     }
 
-    return () => {
-      if (defaultAdminSeeded) {
-        unsubscribeFromAllUpdates();
-      }
-    };
-  }, [defaultAdminSeeded]);
+    setUsers(effectiveUsers);
 
+    const effectiveLocations = remoteLocations ?? localLocations;
+    setLocations(effectiveLocations);
+    saveLocations(effectiveLocations);
+
+    const effectiveInventory = remoteInventory ?? localInventory;
+    setInventory(effectiveInventory);
+    saveInventory(effectiveInventory);
+
+    const effectiveSchedules = remoteSchedules ?? localSchedules;
+    setSchedules(effectiveSchedules);
+    saveSchedules(effectiveSchedules);
+
+    const effectiveCancelRequests =
+      remoteCancelRequests ?? localCancelRequests;
+    setCancelRequests(effectiveCancelRequests);
+    saveCancelRequests(effectiveCancelRequests);
+
+    const effectiveFraudChecks =
+      remoteFraudChecks ?? localFraudChecks;
+    setFraudChecks(effectiveFraudChecks);
+    saveFraudChecks(effectiveFraudChecks);
+
+    setUsersLoaded(true);
+    setLocationsLoaded(true);
+    setDefaultAdminSeeded(true);
+  };
+
+  if (!defaultAdminSeeded) {
+    void initializeApp();
+  }
+
+  const unsubscribeInventory = listenToInventoryUpdates((items) => {
+    setInventory(items);
+    saveInventory(items);
+  });
+const unsubscribeUsers = listenToUsersUpdates((items) => {
+  setUsers(items);
+  saveLocalUsers(items);
+});
+
+const unsubscribeSchedules = listenToSchedulesUpdates((items) => {
+  setSchedules(items);
+  saveSchedules(items);
+});
+
+const unsubscribeCancelRequests = listenToCancelRequestsUpdates((items) => {
+  setCancelRequests(items);
+  saveCancelRequests(items);
+});
+ const unsubscribeInventory = listenToInventoryUpdates((items) => {
+  setInventory(items);
+  saveInventory(items);
+});
+
+const unsubscribeUsers = listenToUsersUpdates((items) => {
+  setUsers(items);
+  saveLocalUsers(items);
+});
+
+const unsubscribeSchedules = listenToSchedulesUpdates((items) => {
+  setSchedules(items);
+  saveSchedules(items);
+});
+
+const unsubscribeCancelRequests = listenToCancelRequestsUpdates((items) => {
+  setCancelRequests(items);
+  saveCancelRequests(items);
+});
+
+return () => {
+  unsubscribeInventory();
+  unsubscribeUsers();
+  unsubscribeSchedules();
+  unsubscribeCancelRequests();
+
+  if (defaultAdminSeeded) {
+    unsubscribeFromAllUpdates();
+  }
+};
+}, [defaultAdminSeeded]);
+}, []);
   useEffect(() => {
     if (!currentUser) return;
     if (currentUser.role === 'Admin') {
