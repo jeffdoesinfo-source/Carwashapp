@@ -16,6 +16,8 @@ import {
   saveFraudChecks,
   loadHistory,
   saveHistory,
+  loadNotifications,
+  saveNotifications,
 } from './utils/storage';
 import type {
   CancelRequest,
@@ -23,6 +25,7 @@ import type {
   HistoryEntry,
   InventoryItem,
   LocationItem,
+  NotificationItem,
   Permission,
   Role,
   ScheduleItem,
@@ -91,7 +94,9 @@ function App() {
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
   const [cancelRequests, setCancelRequests] = useState<CancelRequest[]>([]);
   const [fraudChecks, setFraudChecks] = useState<FraudCheck[]>([]);
+  const [fraudSearch, setFraudSearch] = useState('');
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
@@ -124,6 +129,7 @@ function App() {
       setCancelRequests(loadCancelRequests());
       setFraudChecks(loadFraudChecks());
       setHistory(loadHistory());
+      setNotifications(loadNotifications());
       setLocationsLoaded(true);
     };
 
@@ -147,17 +153,20 @@ function App() {
     const allSchedules = loadSchedules();
     const allCancelRequests = loadCancelRequests();
     const allHistory = loadHistory();
+    const allNotifications = loadNotifications();
 
     if (currentUser.role === 'Admin') {
       setInventory(allInventory);
       setSchedules(allSchedules);
       setCancelRequests(allCancelRequests);
       setHistory(allHistory);
+      setNotifications(allNotifications);
     } else {
       setInventory(allInventory.filter(item => item.locationId === locationId));
       setSchedules(allSchedules.filter(item => item.locationId === locationId));
       setCancelRequests(allCancelRequests.filter(item => item.locationId === locationId));
       setHistory(allHistory.filter(item => item.locationId === locationId));
+      setNotifications(allNotifications.filter(item => item.locationId === locationId));
     }
   }, [currentUser, appLocationId]);
 
@@ -213,6 +222,41 @@ function App() {
     setHistory(updatedHistory);
   }
 
+  function createNotification(message: string, type: NotificationItem['type'], locationId: string, relatedId?: string) {
+    const currentNotifications = loadNotifications();
+    const existing = relatedId
+      ? currentNotifications.find((item) => item.relatedId === relatedId && item.type === type && item.locationId === locationId)
+      : undefined;
+
+    if (existing) {
+      return;
+    }
+
+    const newItem: NotificationItem = {
+      id: generateId(),
+      relatedId,
+      message,
+      type,
+      timestamp: new Date().toISOString(),
+      locationId,
+      read: false,
+    };
+
+    const updatedNotifications = [newItem, ...currentNotifications];
+    saveNotifications(updatedNotifications);
+    setNotifications(currentUser?.role === 'Admin' ? updatedNotifications : updatedNotifications.filter((item) => item.locationId === locationId));
+  }
+
+  const markAllNotificationsRead = () => {
+    if (!currentUser) return;
+    const currentNotifications = loadNotifications();
+    const updatedNotifications = currentNotifications.map((item) =>
+      item.locationId === appLocationId ? { ...item, read: true } : item,
+    );
+    saveNotifications(updatedNotifications);
+    setNotifications(currentUser.role === 'Admin' ? updatedNotifications : updatedNotifications.filter((item) => item.locationId === appLocationId));
+  };
+
   const handleLogin = async () => {
     if (!usersLoaded) {
       setLoginError('Please wait while user data is loading.');
@@ -245,7 +289,7 @@ function App() {
     setActiveTab('Dashboard');
   };
 
-  const [newSchedule, setNewSchedule] = useState({ title: '', date: '', type: 'Shift' as ScheduleItem['type'], assignedTo: '' });
+  const [newSchedule, setNewSchedule] = useState({ title: '', date: '', startTime: '', endTime: '', type: 'Shift' as ScheduleItem['type'], assignedTo: '' });
   const [newInventory, setNewInventory] = useState({ name: '', quantity: 0, notes: '' });
   const [newCancel, setNewCancel] = useState({ customerName: '', licensePlate: '', reason: '' });
   const [newFraud, setNewFraud] = useState({ customerName: '', licensePlate: '', location: '', note: '' });
@@ -259,6 +303,59 @@ function App() {
   }, [locations, newUser.locationId]);
 
   const appLocation = locations.find((item) => item.id === appLocationId);
+  const shiftSchedules = useMemo(() => schedules.filter((item) => item.type === 'Shift'), [schedules]);
+  const choreSchedules = useMemo(() => schedules.filter((item) => item.type !== 'Shift'), [schedules]);
+  const unreadNotifications = useMemo(
+    () => notifications.filter((item) => !item.read && item.locationId === appLocationId),
+    [notifications, appLocationId],
+  );
+  const displayedFraudChecks = useMemo(() => {
+    const searchText = fraudSearch.trim().toLowerCase();
+    if (!searchText) return fraudChecks;
+    return fraudChecks.filter((item) =>
+      item.customerName.toLowerCase().includes(searchText)
+      || item.licensePlate.toLowerCase().includes(searchText)
+      || item.location.toLowerCase().includes(searchText)
+      || (item.membership?.toLowerCase().includes(searchText) ?? false),
+    );
+  }, [fraudChecks, fraudSearch]);
+
+  const finalizeFraudCheck = (itemId: string) => {
+    if (!currentUser) return;
+    const currentFraudChecks = loadFraudChecks();
+    const target = currentFraudChecks.find((item) => item.id === itemId);
+    if (!target) return;
+
+    const membershipResponse = window.prompt('Customer membership level (leave blank if none):', target.membership || '');
+    if (membershipResponse === null) return;
+    const membership = membershipResponse.trim();
+
+    const activeResponse = window.prompt('Set customer active status: enter yes or no', target.active ? 'yes' : 'no');
+    if (activeResponse === null) return;
+    const active = activeResponse.trim().toLowerCase() === 'yes';
+
+    const updatedFraudChecks = currentFraudChecks.map((item) =>
+      item.id === itemId
+        ? { ...item, done: true, membership, active }
+        : item,
+    );
+
+    saveFraudChecks(updatedFraudChecks);
+    setFraudChecks(updatedFraudChecks);
+
+    const fraudLocationId = appLocationId || target.location;
+    createHistoryEntry(
+      'Fraud plate resolved',
+      `${target.customerName} / ${target.licensePlate} (${membership || 'No membership'}) - ${active ? 'Active' : 'Not Active'}`,
+      fraudLocationId,
+    );
+    createNotification(
+      `Fraud plate ${target.licensePlate} resolved as ${active ? 'Active' : 'Not Active'} (${membership || 'No membership'})`,
+      'Fraud',
+      fraudLocationId,
+      `${target.id}-resolved`,
+    );
+  };
 
   const handleCreateSchedule = async () => {
     if (!currentUser || !appLocationId || !newSchedule.title || !newSchedule.date) return;
@@ -275,8 +372,21 @@ function App() {
     saveSchedules(updatedSchedules);
     setSchedules(updatedSchedules);
 
-    createHistoryEntry('Schedule added', `${newSchedule.title} for ${newSchedule.assignedTo || 'unassigned'}`, appLocationId);
-    setNewSchedule({ title: '', date: '', type: 'Shift', assignedTo: '' });
+    createHistoryEntry(
+      'Schedule added',
+      `${newSchedule.title} for ${newSchedule.assignedTo || 'unassigned'}${newSchedule.startTime ? ` at ${newSchedule.startTime}` : ''}`,
+      appLocationId,
+    );
+
+    const scheduleLabel = newSchedule.type === 'Shift' ? 'Shift assigned' : 'Chore scheduled';
+    const scheduleMessage =
+      newSchedule.type === 'Shift'
+        ? `Shift scheduled for ${newSchedule.assignedTo || 'unassigned'} on ${newSchedule.date}${newSchedule.startTime ? ` at ${newSchedule.startTime}` : ''}`
+        : `${newSchedule.type} added: ${newSchedule.title} on ${newSchedule.date}`;
+
+    createNotification(scheduleMessage, newSchedule.type === 'Shift' ? 'Shift' : 'Schedule', appLocationId, newItem.id);
+
+    setNewSchedule({ title: '', date: '', startTime: '', endTime: '', type: 'Shift', assignedTo: '' });
   };
 
   const handleAddInventory = async () => {
@@ -323,6 +433,7 @@ function App() {
     const newItem: FraudCheck = {
       id: generateId(),
       ...newFraud,
+      done: false,
       createdAt: new Date().toISOString(),
     };
 
@@ -331,7 +442,14 @@ function App() {
     saveFraudChecks(updatedFraudChecks);
     setFraudChecks(updatedFraudChecks);
 
-    createHistoryEntry('Fraud plate check added', `${newFraud.customerName} / ${newFraud.licensePlate}`, appLocationId || currentUser.locationId);
+    const fraudLocationId = appLocationId || currentUser.locationId;
+    createHistoryEntry('Fraud plate check added', `${newFraud.customerName} / ${newFraud.licensePlate}`, fraudLocationId);
+    createNotification(
+      `Fraud plate entered: ${newFraud.licensePlate} (${newFraud.customerName}) at ${newFraud.location}`,
+      'Fraud',
+      fraudLocationId,
+      newItem.id,
+    );
     setNewFraud({ customerName: '', licensePlate: '', location: '', note: '' });
   };
 
@@ -445,6 +563,7 @@ function App() {
     schedules: schedules.length,
     cancelRequests: cancelRequests.filter((item) => !item.done).length,
     fraudChecks: fraudChecks.length,
+    notifications: notifications.filter((item) => !item.read && item.locationId === appLocationId).length,
   };
 
   return (
@@ -507,6 +626,10 @@ function App() {
               <h3>Fraud plate records</h3>
               <p>{dashboardCounts.fraudChecks}</p>
             </div>
+            <div className="summary-card">
+              <h3>Unread notifications</h3>
+              <p>{dashboardCounts.notifications}</p>
+            </div>
           </div>
           <div className="section-card">
             <h2>Quick notes</h2>
@@ -533,6 +656,22 @@ function App() {
                   type="date"
                   value={newSchedule.date}
                   onChange={(event) => setNewSchedule({ ...newSchedule, date: event.target.value })}
+                />
+              </label>
+              <label>
+                Start time
+                <input
+                  type="time"
+                  value={newSchedule.startTime}
+                  onChange={(event) => setNewSchedule({ ...newSchedule, startTime: event.target.value })}
+                />
+              </label>
+              <label>
+                End time
+                <input
+                  type="time"
+                  value={newSchedule.endTime}
+                  onChange={(event) => setNewSchedule({ ...newSchedule, endTime: event.target.value })}
                 />
               </label>
               <label>
@@ -566,12 +705,82 @@ function App() {
             </button>
           </div>
 
+          <div className="section-card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h2>Notifications</h2>
+              {unreadNotifications.length > 0 && (
+                <button className="secondary small" onClick={markAllNotificationsRead}>
+                  Mark all read
+                </button>
+              )}
+            </div>
+            {unreadNotifications.length > 0 ? (
+              <ul className="notification-list">
+                {unreadNotifications.map((notification) => (
+                  <li key={notification.id}>
+                    <strong>{notification.type}</strong>: {notification.message}
+                    <div className="notification-time">{new Date(notification.timestamp).toLocaleString()}</div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>No new notifications for this location.</p>
+            )}
+          </div>
+
           <div className="table-card">
-            <h2>Upcoming schedule</h2>
+            <h2>Shift assignments</h2>
             <table>
               <thead>
                 <tr>
                   <th>Date</th>
+                  <th>Time</th>
+                  <th>Title</th>
+                  <th>Assigned</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shiftSchedules.map((item) => (
+                  <tr key={item.id}>
+                    <td>{item.date}</td>
+                    <td>{item.startTime || '—'} {item.endTime ? `– ${item.endTime}` : ''}</td>
+                    <td>{item.title}</td>
+                    <td>{item.assignedTo || '—'}</td>
+                    <td>
+                      <button
+                        className="small"
+                        onClick={() =>
+                          toggleDone(
+                            'schedules',
+                            item.id,
+                            item.done,
+                            'Shift assignment',
+                            `${item.title} for ${item.assignedTo}`,
+                          )
+                        }
+                      >
+                        {item.done ? 'Done' : 'Mark done'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {shiftSchedules.length === 0 && (
+                  <tr>
+                    <td colSpan={5}>No shift assignments for this location yet.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="table-card">
+            <h2>Chores</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Time</th>
                   <th>Title</th>
                   <th>Type</th>
                   <th>Assigned</th>
@@ -579,9 +788,10 @@ function App() {
                 </tr>
               </thead>
               <tbody>
-                {schedules.map((item) => (
+                {choreSchedules.map((item) => (
                   <tr key={item.id}>
                     <td>{item.date}</td>
+                    <td>{item.startTime || '—'} {item.endTime ? `– ${item.endTime}` : ''}</td>
                     <td>{item.title}</td>
                     <td>{item.type}</td>
                     <td>{item.assignedTo || '—'}</td>
@@ -593,7 +803,7 @@ function App() {
                             'schedules',
                             item.id,
                             item.done,
-                            'Schedule item',
+                            'Chore item',
                             `${item.title} for ${item.assignedTo}`,
                           )
                         }
@@ -603,9 +813,9 @@ function App() {
                     </td>
                   </tr>
                 ))}
-                {schedules.length === 0 && (
+                {choreSchedules.length === 0 && (
                   <tr>
-                    <td colSpan={5}>No schedule items for this location yet.</td>
+                    <td colSpan={6}>No chores scheduled for this location yet.</td>
                   </tr>
                 )}
               </tbody>
@@ -797,6 +1007,17 @@ function App() {
             </button>
           </div>
 
+          <div className="section-card">
+            <label>
+              Search plates or names
+              <input
+                value={fraudSearch}
+                onChange={(event) => setFraudSearch(event.target.value)}
+                placeholder="Search license plate, customer, location, membership"
+              />
+            </label>
+          </div>
+
           <div className="table-card">
             <h2>Fraud plate records</h2>
             <table>
@@ -805,21 +1026,35 @@ function App() {
                   <th>Customer</th>
                   <th>Plate</th>
                   <th>Location</th>
+                  <th>Membership</th>
+                  <th>Status</th>
                   <th>Note</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {fraudChecks.map((item) => (
+                {displayedFraudChecks.map((item) => (
                   <tr key={item.id}>
                     <td>{item.customerName}</td>
                     <td>{item.licensePlate}</td>
                     <td>{item.location}</td>
+                    <td>{item.membership || '—'}</td>
+                    <td>{item.done ? (item.active ? 'Active' : 'Not Active') : 'Open'}</td>
                     <td>{item.note}</td>
+                    <td>
+                      {!item.done ? (
+                        <button className="small" onClick={() => finalizeFraudCheck(item.id)}>
+                          Mark done
+                        </button>
+                      ) : (
+                        'Resolved'
+                      )}
+                    </td>
                   </tr>
                 ))}
-                {fraudChecks.length === 0 && (
+                {displayedFraudChecks.length === 0 && (
                   <tr>
-                    <td colSpan={4}>No fraud plate checks yet.</td>
+                    <td colSpan={7}>No fraud plate checks match the search or records are empty.</td>
                   </tr>
                 )}
               </tbody>

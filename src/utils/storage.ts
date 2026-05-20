@@ -1,4 +1,4 @@
-import type { AppData, User, LocationItem, InventoryItem, ScheduleItem, CancelRequest, FraudCheck, HistoryEntry } from '../types';
+import type { AppData, User, LocationItem, InventoryItem, ScheduleItem, CancelRequest, FraudCheck, HistoryEntry, NotificationItem } from '../types';
 
 const STORAGE_KEY = 'carwashStaffManagementData';
 const USER_KEY = 'carwashStaffManagementUsers';
@@ -93,6 +93,7 @@ const SCHEDULES_KEY = 'carwashSchedules';
 const CANCEL_REQUESTS_KEY = 'carwashCancelRequests';
 const FRAUD_CHECKS_KEY = 'carwashFraudChecks';
 const HISTORY_KEY = 'carwashHistory';
+const NOTIFICATIONS_KEY = 'carwashNotifications';
 
 export function loadLocations(): LocationItem[] {
   if (typeof window === 'undefined') return [];
@@ -182,4 +183,19 @@ export function loadHistory(): HistoryEntry[] {
 export function saveHistory(history: HistoryEntry[]) {
   if (typeof window === 'undefined') return;
   window.localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+}
+
+export function loadNotifications(): NotificationItem[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(NOTIFICATIONS_KEY);
+    return raw ? (JSON.parse(raw) as NotificationItem[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveNotifications(notifications: NotificationItem[]) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(notifications));
 }

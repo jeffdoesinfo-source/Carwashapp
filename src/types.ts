@@ -27,10 +27,22 @@ export interface ScheduleItem {
   id: string;
   title: string;
   date: string;
+  startTime?: string;
+  endTime?: string;
   type: 'Shift' | 'Daily Chore' | 'Extra Chore';
   assignedTo: string;
   locationId: string;
   done: boolean;
+}
+
+export interface NotificationItem {
+  id: string;
+  relatedId?: string;
+  message: string;
+  type: 'Shift' | 'Schedule' | 'Fraud' | 'General';
+  timestamp: string;
+  locationId: string;
+  read?: boolean;
 }
 
 export interface CancelRequest {
@@ -49,6 +61,9 @@ export interface FraudCheck {
   licensePlate: string;
   location: string;
   note: string;
+  membership?: string;
+  active?: boolean;
+  done: boolean;
   createdAt: string;
 }
 
@@ -68,4 +83,5 @@ export interface AppData {
   cancelRequests: CancelRequest[];
   fraudChecks: FraudCheck[];
   history: HistoryEntry[];
+  notifications: NotificationItem[];
 }
