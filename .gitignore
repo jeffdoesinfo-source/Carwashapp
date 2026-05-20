@@ -1,2 +1,9 @@
 .vercel
 node_modules
+.env*.local
+# Android/iOS signing artifacts
+android/release-keystore.jks
+android/release-keystore.jks.base64
+keystore.jks
+keystore.properties
+*.jks
