@@ -13,6 +13,7 @@ export interface User {
 export interface LocationItem {
   id: string;
   name: string;
+  lowInventoryThreshold?: number;
 }
 
 export interface InventoryItem {

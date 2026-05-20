@@ -60,6 +60,8 @@ const localDefaultLocation: LocationItem = {
   name: 'Default Location',
 };
 
+const ALL_LOCATIONS_ID = 'all-locations';
+
 const generateId = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -108,13 +110,19 @@ function App() {
 
   const appLocationId = useMemo(() => {
     if (!currentUser) return '';
-    return currentUser.role === 'Admin' ? selectedLocationId || currentUser.locationId : currentUser.locationId;
+    if (currentUser.role === 'Admin') {
+      return selectedLocationId === ALL_LOCATIONS_ID ? '' : selectedLocationId || currentUser.locationId;
+    }
+    return currentUser.locationId;
   }, [currentUser, selectedLocationId]);
 
-  const locationUsers = useMemo(
-    () => users.filter((item) => item.locationId === appLocationId),
-    [users, appLocationId],
-  );
+  const locationUsers = useMemo(() => {
+    if (!currentUser) return [];
+    if (currentUser.role === 'Admin' && selectedLocationId === ALL_LOCATIONS_ID) {
+      return users;
+    }
+    return users.filter((item) => item.locationId === appLocationId);
+  }, [users, appLocationId, currentUser, selectedLocationId]);
 
   useEffect(() => {
     const loadAll = async () => {
@@ -142,13 +150,11 @@ function App() {
       setSchedules([]);
       setCancelRequests([]);
       setHistory([]);
+      setNotifications([]);
       return;
     }
 
-    // Filter data by location for non-admin users
     const locationId = appLocationId;
-    if (!locationId) return;
-
     const allInventory = loadInventory();
     const allSchedules = loadSchedules();
     const allCancelRequests = loadCancelRequests();
@@ -156,19 +162,28 @@ function App() {
     const allNotifications = loadNotifications();
 
     if (currentUser.role === 'Admin') {
-      setInventory(allInventory);
-      setSchedules(allSchedules);
-      setCancelRequests(allCancelRequests);
-      setHistory(allHistory);
-      setNotifications(allNotifications);
+      if (selectedLocationId === ALL_LOCATIONS_ID) {
+        setInventory(allInventory);
+        setSchedules(allSchedules);
+        setCancelRequests(allCancelRequests);
+        setHistory(allHistory);
+        setNotifications(allNotifications);
+      } else {
+        setInventory(allInventory.filter(item => item.locationId === locationId));
+        setSchedules(allSchedules.filter(item => item.locationId === locationId));
+        setCancelRequests(allCancelRequests.filter(item => item.locationId === locationId));
+        setHistory(allHistory.filter(item => item.locationId === locationId));
+        setNotifications(allNotifications.filter(item => item.locationId === locationId));
+      }
     } else {
+      if (!locationId) return;
       setInventory(allInventory.filter(item => item.locationId === locationId));
       setSchedules(allSchedules.filter(item => item.locationId === locationId));
       setCancelRequests(allCancelRequests.filter(item => item.locationId === locationId));
       setHistory(allHistory.filter(item => item.locationId === locationId));
       setNotifications(allNotifications.filter(item => item.locationId === locationId));
     }
-  }, [currentUser, appLocationId]);
+  }, [currentUser, appLocationId, selectedLocationId]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -250,11 +265,18 @@ function App() {
   const markAllNotificationsRead = () => {
     if (!currentUser) return;
     const currentNotifications = loadNotifications();
-    const updatedNotifications = currentNotifications.map((item) =>
-      item.locationId === appLocationId ? { ...item, read: true } : item,
-    );
+    const updatedNotifications = currentNotifications.map((item) => {
+      if (currentUser.role === 'Admin' && selectedLocationId === ALL_LOCATIONS_ID) {
+        return { ...item, read: true };
+      }
+      return item.locationId === appLocationId ? { ...item, read: true } : item;
+    });
     saveNotifications(updatedNotifications);
-    setNotifications(currentUser.role === 'Admin' ? updatedNotifications : updatedNotifications.filter((item) => item.locationId === appLocationId));
+    if (currentUser.role === 'Admin' && selectedLocationId === ALL_LOCATIONS_ID) {
+      setNotifications(updatedNotifications);
+    } else {
+      setNotifications(updatedNotifications.filter((item) => item.locationId === appLocationId));
+    }
   };
 
   const handleLogin = async () => {
@@ -294,7 +316,10 @@ function App() {
   const [newCancel, setNewCancel] = useState({ customerName: '', licensePlate: '', reason: '' });
   const [newFraud, setNewFraud] = useState({ customerName: '', licensePlate: '', location: '', note: '' });
   const [newUser, setNewUser] = useState({ username: '', password: '', role: 'Crew' as Role, locationId: '', permissions: getDefaultPermissions('Crew') });
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [newLocationName, setNewLocationName] = useState('');
+  const [newLocationThreshold, setNewLocationThreshold] = useState(5);
+  const [locationThresholdEdits, setLocationThresholdEdits] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (!newUser.locationId && locations.length > 0) {
@@ -305,10 +330,12 @@ function App() {
   const appLocation = locations.find((item) => item.id === appLocationId);
   const shiftSchedules = useMemo(() => schedules.filter((item) => item.type === 'Shift'), [schedules]);
   const choreSchedules = useMemo(() => schedules.filter((item) => item.type !== 'Shift'), [schedules]);
-  const unreadNotifications = useMemo(
-    () => notifications.filter((item) => !item.read && item.locationId === appLocationId),
-    [notifications, appLocationId],
-  );
+  const unreadNotifications = useMemo(() => {
+    if (currentUser?.role === 'Admin' && selectedLocationId === ALL_LOCATIONS_ID) {
+      return notifications.filter((item) => !item.read);
+    }
+    return notifications.filter((item) => !item.read && item.locationId === appLocationId);
+  }, [notifications, appLocationId, currentUser, selectedLocationId]);
   const displayedFraudChecks = useMemo(() => {
     const searchText = fraudSearch.trim().toLowerCase();
     if (!searchText) return fraudChecks;
@@ -319,6 +346,45 @@ function App() {
       || (item.membership?.toLowerCase().includes(searchText) ?? false),
     );
   }, [fraudChecks, fraudSearch]);
+
+  const adminOverview = useMemo(() => {
+    if (!currentUser || currentUser.role !== 'Admin') {
+      return {
+        scheduleByLocation: [] as { locationId: string; locationName: string; shifts: ScheduleItem[] }[],
+        lowInventoryAlerts: [] as (InventoryItem & { locationName: string })[],
+      };
+    }
+
+    const scheduleGroups = schedules
+      .filter((item) => item.type === 'Shift')
+      .reduce<Record<string, { locationId: string; locationName: string; shifts: ScheduleItem[] }>>((acc, schedule) => {
+        const locationName = locations.find((loc) => loc.id === schedule.locationId)?.name || 'Unknown location';
+        if (!acc[schedule.locationId]) {
+          acc[schedule.locationId] = {
+            locationId: schedule.locationId,
+            locationName,
+            shifts: [],
+          };
+        }
+        acc[schedule.locationId].shifts.push(schedule);
+        return acc;
+      }, {});
+
+    const scheduleByLocation = Object.values(scheduleGroups).sort((a, b) => a.locationName.localeCompare(b.locationName));
+    const lowInventoryAlerts = inventory
+      .filter((item) => {
+        const location = locations.find((loc) => loc.id === item.locationId);
+        const threshold = location?.lowInventoryThreshold ?? 5;
+        return item.quantity <= threshold;
+      })
+      .map((item) => ({
+        ...item,
+        locationName: locations.find((loc) => loc.id === item.locationId)?.name || 'Unknown location',
+      }))
+      .sort((a, b) => a.locationName.localeCompare(b.locationName));
+
+    return { scheduleByLocation, lowInventoryAlerts };
+  }, [currentUser, inventory, schedules, locations]);
 
   const finalizeFraudCheck = (itemId: string) => {
     if (!currentUser) return;
@@ -499,24 +565,65 @@ function App() {
   };
 
   const handleCreateUser = async () => {
-    if (!currentUser || currentUser.role !== 'Admin' || !newUser.username || !newUser.password || !newUser.locationId) return;
+    if (!currentUser || currentUser.role !== 'Admin' || !newUser.username || !newUser.locationId) return;
     setActionMessage('');
-    const created: User = {
-      id: generateId(),
-      username: newUser.username.trim(),
-      password: newUser.password,
-      role: newUser.role,
-      locationId: newUser.locationId,
-      permissions: newUser.permissions,
-    };
-    const updatedUsers = [...users, created];
+
+    const updatedUsers = editingUserId
+      ? users.map((user) =>
+          user.id === editingUserId
+            ? {
+                ...user,
+                username: newUser.username.trim(),
+                password: newUser.password || user.password,
+                role: newUser.role,
+                locationId: newUser.locationId,
+                permissions: newUser.permissions,
+              }
+            : user,
+        )
+      : [
+          ...users,
+          {
+            id: generateId(),
+            username: newUser.username.trim(),
+            password: newUser.password,
+            role: newUser.role,
+            locationId: newUser.locationId,
+            permissions: newUser.permissions,
+          },
+        ];
+
     setUsers(updatedUsers);
     await saveLocalUsersAsync(updatedUsers);
 
-    createHistoryEntry('User created', `${newUser.username} as ${newUser.role}`, newUser.locationId);
-    setActionMessage('New user account created successfully.');
+    if (editingUserId) {
+      createHistoryEntry('User updated', `${newUser.username} as ${newUser.role}`, newUser.locationId);
+      setActionMessage('User account updated successfully.');
+    } else {
+      createHistoryEntry('User created', `${newUser.username} as ${newUser.role}`, newUser.locationId);
+      setActionMessage('New user account created successfully.');
+    }
 
+    setEditingUserId(null);
     setNewUser({ username: '', password: '', role: 'Crew', locationId: locations[0]?.id || '', permissions: getDefaultPermissions('Crew') });
+  };
+
+  const handleEditUser = (user: User) => {
+    setEditingUserId(user.id);
+    setNewUser({
+      username: user.username,
+      password: '',
+      role: user.role,
+      locationId: user.locationId,
+      permissions: user.permissions ?? getDefaultPermissions(user.role),
+    });
+    setActionMessage('Editing existing user. Update the fields and save.');
+  };
+
+  const handleCancelEditUser = () => {
+    setEditingUserId(null);
+    setNewUser({ username: '', password: '', role: 'Crew', locationId: locations[0]?.id || '', permissions: getDefaultPermissions('Crew') });
+    setActionMessage('');
   };
 
   const handleCreateLocation = async () => {
@@ -525,6 +632,7 @@ function App() {
     const newLocation: LocationItem = {
       id: generateId(),
       name: newLocationName,
+      lowInventoryThreshold: newLocationThreshold,
     };
 
     const currentLocations = loadLocations();
@@ -534,6 +642,7 @@ function App() {
 
     createHistoryEntry('Location added', newLocationName, newLocation.id);
     setNewLocationName('');
+    setNewLocationThreshold(5);
   };
 
   const toggleDone = async (collectionName: string, itemId: string, currentValue: boolean, label: string, details: string) => {
@@ -558,6 +667,7 @@ function App() {
 
   const availableTabs = tabs.filter((tab) => {
     if (!currentUser) return false;
+    if (tab === 'Fraud Plate Check') return true;
     return hasPermission(currentUser, tabPermissionMap[tab]);
   });
 
@@ -608,7 +718,9 @@ function App() {
     schedules: schedules.length,
     cancelRequests: cancelRequests.filter((item) => !item.done).length,
     fraudChecks: fraudChecks.length,
-    notifications: notifications.filter((item) => !item.read && item.locationId === appLocationId).length,
+    notifications: currentUser?.role === 'Admin' && selectedLocationId === ALL_LOCATIONS_ID
+      ? notifications.filter((item) => !item.read).length
+      : notifications.filter((item) => !item.read && item.locationId === appLocationId).length,
   };
 
   return (
@@ -626,6 +738,7 @@ function App() {
             <label>
               Active location
               <select value={selectedLocationId} onChange={(event) => setSelectedLocationId(event.target.value)}>
+                <option value={ALL_LOCATIONS_ID}>All locations</option>
                 {locations.map((location) => (
                   <option key={location.id} value={location.id}>
                     {location.name}
@@ -676,6 +789,67 @@ function App() {
               <p>{dashboardCounts.notifications}</p>
             </div>
           </div>
+          {currentUser.role === 'Admin' && (
+            <div className="section-card">
+              <h2>Admin location overview</h2>
+              {adminOverview.lowInventoryAlerts.length > 0 ? (
+                <>
+                  <h3>Low inventory alerts</h3>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Location</th>
+                        <th>Item</th>
+                        <th>Qty</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {adminOverview.lowInventoryAlerts.map((item) => (
+                        <tr key={item.id}>
+                          <td>{item.locationName}</td>
+                          <td>{item.name}</td>
+                          <td>{item.quantity}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              ) : (
+                <p>No low inventory alerts. All tracked items are above the threshold.</p>
+              )}
+
+              <h3>Who is scheduled where</h3>
+              {adminOverview.scheduleByLocation.length > 0 ? (
+                adminOverview.scheduleByLocation.map((group) => (
+                  <div key={group.locationId} style={{ marginTop: 16 }}>
+                    <h4>{group.locationName}</h4>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Time</th>
+                          <th>Title</th>
+                          <th>Assigned</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.shifts.map((shift) => (
+                          <tr key={shift.id}>
+                            <td>{shift.date}</td>
+                            <td>{shift.startTime || '—'}{shift.endTime ? `– ${shift.endTime}` : ''}</td>
+                            <td>{shift.title}</td>
+                            <td>{shift.assignedTo || 'Unassigned'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ))
+              ) : (
+                <p>No scheduled shift assignments found for the selected view.</p>
+              )}
+            </div>
+          )}
           <div className="section-card">
             <h2>Quick notes</h2>
             <p>Use the menu to track schedules, inventory, cancel requests, fraud plate checks, and history by location.</p>
@@ -1152,6 +1326,15 @@ function App() {
                 New location name
                 <input value={newLocationName} onChange={(event) => setNewLocationName(event.target.value)} />
               </label>
+              <label>
+                Low inventory threshold
+                <input
+                  type="number"
+                  min={0}
+                  value={newLocationThreshold}
+                  onChange={(event) => setNewLocationThreshold(Number(event.target.value))}
+                />
+              </label>
             </div>
             <button className="primary" onClick={handleCreateLocation}>
               Add location
@@ -1226,6 +1409,49 @@ function App() {
             </button>
           </div>
 
+          <div className="section-card">
+            <h2>Location thresholds</h2>
+            <div className="field-group">
+              {locations.map((location) => (
+                <label key={location.id} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  {location.name}
+                  <input
+                    type="number"
+                    min={0}
+                    value={locationThresholdEdits[location.id] ?? location.lowInventoryThreshold ?? 5}
+                    onChange={(event) => {
+                      const threshold = Number(event.target.value);
+                      setLocationThresholdEdits((prev) => ({ ...prev, [location.id]: threshold }));
+                    }}
+                  />
+                  <button
+                    className="secondary small"
+                    onClick={async () => {
+                      const threshold = locationThresholdEdits[location.id] ?? location.lowInventoryThreshold ?? 5;
+                      const updatedLocations = locations.map((loc) =>
+                        loc.id === location.id ? { ...loc, lowInventoryThreshold: threshold } : loc,
+                      );
+                      saveLocations(updatedLocations);
+                      setLocations(updatedLocations);
+                      setLocationThresholdEdits((prev) => {
+                        const next = { ...prev };
+                        delete next[location.id];
+                        return next;
+                      });
+                      createHistoryEntry(
+                        'Location threshold updated',
+                        `${location.name} low inventory threshold set to ${threshold}`,
+                        location.id,
+                      );
+                    }}
+                  >
+                    Save
+                  </button>
+                </label>
+              ))}
+            </div>
+          </div>
+
           <div className="table-card">
             <h2>Accounts</h2>
             <table>
@@ -1244,6 +1470,11 @@ function App() {
                     <td>{user.role}</td>
                     <td>{locations.find((loc) => loc.id === user.locationId)?.name || 'Unknown'}</td>
                     <td>{getPermissionsForUser(user).join(', ')}</td>
+                    <td>
+                      <button className="small" onClick={() => handleEditUser(user)}>
+                        Edit
+                      </button>
+                    </td>
                   </tr>
                 ))}
                 {users.length === 0 && (
