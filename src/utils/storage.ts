@@ -268,7 +268,14 @@ export async function syncUsersToFirebase(users: User[]) {
   if (typeof window === 'undefined') return;
   try {
     const usersRef = doc(db, 'app', 'users_data');
-    await setDoc(usersRef, { data: users, lastUpdated: new Date().toISOString() });
+   await setDoc(
+  usersRef,
+  {
+    data: users ?? [],
+    lastUpdated: new Date().toISOString(),
+  },
+  { merge: true }
+);
   } catch (err) {
     console.error('Failed to sync users to Firebase:', err);
   }
