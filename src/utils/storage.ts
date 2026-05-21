@@ -219,10 +219,12 @@ import { db } from '../firebase';
 import {
   doc,
   getDoc,
+  getDocs,
   setDoc,
   onSnapshot,
   Unsubscribe,
   writeBatch,
+  collection,
 } from 'firebase/firestore';
 
 let unsubscribeUsers: Unsubscribe | null = null;
@@ -362,8 +364,22 @@ export async function loadLocationsFromFirebase(): Promise<LocationItem[] | null
   return loadFirestoreData<LocationItem>('locations_data');
 }
 
-export async function loadInventoryFromFirebase(): Promise<InventoryItem[] | null> {
-  return loadFirestoreData<InventoryItem>('inventory_data');
+import { collection, getDocs } from "firebase/firestore";
+
+export async function loadInventoryFromFirebase(): Promise<InventoryItem[]> {
+  try {
+    const snapshot = await getDocs(collection(db, "inventory"));
+
+    return snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    })) as InventoryItem[];
+
+  } catch (err) {
+    console.error("Failed to load inventory:", err);
+    return [];
+  }
+}
 }
 
 export async function loadSchedulesFromFirebase(): Promise<ScheduleItem[] | null> {
@@ -421,39 +437,27 @@ export function listenToInventoryUpdates(callback) {
   if (typeof window === 'undefined') return () => {};
 
   try {
-    unsubscribeInventory = onSnapshot(
-      import { collection, onSnapshot } from "firebase/firestore";
-
-export function listenToInventoryUpdates(callback) {
-  if (typeof window === 'undefined') return () => {};
-
-  return onSnapshot(collection(db, "inventory"), (snapshot) => {
-    const inventory = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
-
-    saveInventory(inventory);
-    callback?.(inventory);
-  });
-},
+    const unsubscribe = onSnapshot(
+      collection(db, "inventory"),
       (snapshot) => {
-        if (snapshot.exists()) {
-          const data = snapshot.data();
-          const inventory = data?.data || [];
 
-          saveInventory(inventory);
+        const inventory = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
 
-          if (callback) {
-            callback(inventory);
-          }
+        saveInventory(inventory);
+
+        if (callback) {
+          callback(inventory);
         }
       }
     );
 
-    return unsubscribeInventory;
+    return unsubscribe;
+
   } catch (err) {
-    console.error('Failed to listen to inventory updates:', err);
+    console.error("Failed inventory listener:", err);
     return () => {};
   }
 }
