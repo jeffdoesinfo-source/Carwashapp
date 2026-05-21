@@ -194,28 +194,31 @@ const uid = userCred.user.uid;
 import { writeBatch, doc } from "firebase/firestore";
 
 export async function syncUsersToFirebase(users: User[]) {
-  if (typeof window === "undefined") return;
+  if (typeof window === 'undefined') return;
 
   try {
+    // 🚨 SAFETY: prevent wiping all users
     if (!Array.isArray(users)) return;
+    if (users.length === 0) {
+      console.warn("Blocked empty user overwrite");
+      return;
+    }
 
-    const batch = writeBatch(db);
+    const usersRef = doc(db, 'app', 'users_data');
 
-    users.forEach((user) => {
-      if (!user?.id) return;
-
-      const ref = doc(db, "users", user.id);
-
-      batch.set(ref, {
-        ...user,
+    await setDoc(
+      usersRef,
+      {
+        data: users,
         lastUpdated: new Date().toISOString(),
-      });
-    });
+      },
+      { merge: true }
+    );
 
-    await batch.commit();
   } catch (err) {
-    console.error("Failed to sync users:", err);
+    console.error('Failed to sync users to Firebase:', err);
   }
+}
 }
   {
     username,
