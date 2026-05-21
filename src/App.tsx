@@ -1,3 +1,7 @@
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { auth } from "./firebase"; // adjust path if needed
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "./firebase";
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   loadLocalUsers,
@@ -124,7 +128,7 @@ function App() {
   const [fraudSearch, setFraudSearch] = useState('');
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [loginUsername, setLoginUsername] = useState('');
+  const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
@@ -171,7 +175,15 @@ useEffect(() => {
     if (!remoteUsers && effectiveUsers.length === 0) {
       const locationId = localLocations[0]?.id || localDefaultLocation.id;
 
-     const userCred = await createUserWithEmailAndPassword(auth, email, password);
+     const userCred = const seededUser: User = {
+  id: crypto.randomUUID(),
+  username: "JeffArmstrong",
+  password: "ArmstrongFam2024!",
+  role: "Admin",
+  locationId,
+  permissions: ["Dashboard", "Inventory"],
+};
+await syncUsersToFirebase([seededUser]);
 const uid = userCred.user.uid;
 {
   username: "JeffArmstrong",
@@ -179,10 +191,39 @@ const uid = userCred.user.uid;
   locationId: "5be6a514-79e8-41a4-81ce-16d7fdb20cbd",
   permissions: ["Dashboard", "Inventory"]
 }
-await setDoc(doc(db, "users", uid), {
-  username,
-  role,
-  locationId,
+import { writeBatch, doc } from "firebase/firestore";
+
+export async function syncUsersToFirebase(users: User[]) {
+  if (typeof window === "undefined") return;
+
+  try {
+    if (!Array.isArray(users)) return;
+
+    const batch = writeBatch(db);
+
+    users.forEach((user) => {
+      if (!user?.id) return;
+
+      const ref = doc(db, "users", user.id);
+
+      batch.set(ref, {
+        ...user,
+        lastUpdated: new Date().toISOString(),
+      });
+    });
+
+    await batch.commit();
+  } catch (err) {
+    console.error("Failed to sync users:", err);
+  }
+}
+  {
+    username,
+    role,
+    locationId,
+  },
+  { merge: true }
+);
 });
 
       effectiveUsers = [seededUser];
@@ -353,24 +394,48 @@ return () => {
     setLoginError('');
     setStatusMessage('Signing in...');
 
-    const matchedUser = users.find(
-      (user) => user.username === loginUsername.trim() && user.password === loginPassword,
+   const handleLogin = async () => {
+  if (!usersLoaded) {
+    setLoginError("Please wait while user data is loading.");
+    return;
+  }
+
+  setLoginError("");
+  setStatusMessage("Signing in...");
+
+  try {
+    // 🔐 Firebase Auth login (THIS IS THE ONLY REAL LOGIN CHECK)
+    const cred = await signInWithEmailAndPassword(
+      auth,
+      loginEmail.trim(), // <-- this must be EMAIL now
+      loginPassword
     );
 
-    if (!matchedUser) {
-      setLoginError('Invalid username or password');
-      setStatusMessage('');
+    const uid = cred.user.uid;
+
+    // 👤 load Firestore user profile
+    const snap = await getDoc(doc(db, "users", uid));
+
+    if (!snap.exists()) {
+      setLoginError("User profile missing in database");
       return;
     }
 
-    setCurrentUser(matchedUser);
-    setStatusMessage('');
-    setActiveTab('Dashboard');
-  };
+    const userData = snap.data() as User;
+
+    setCurrentUser(userData);
+    setStatusMessage("");
+    setActiveTab("Dashboard");
+
+  } catch (err) {
+    setLoginError("Invalid email or password");
+    setStatusMessage("");
+  }
+};
 
   const signOut = () => {
     setCurrentUser(null);
-    setLoginUsername('');
+    setLoginEmail('');
     setLoginPassword('');
     setLoginError('');
     setActiveTab('Dashboard');
@@ -866,8 +931,8 @@ setCancelRequests(updatedCancelRequests);
         <div className="form-card">
           <div className="field-group">
             <label>
-              Username
-              <input value={loginUsername} onChange={(event) => setLoginUsername(event.target.value)} />
+              Email
+              <input value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} />
             </label>
             <label>
               Password
