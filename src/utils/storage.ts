@@ -222,6 +222,7 @@ import {
   setDoc,
   onSnapshot,
   Unsubscribe,
+  writeBatch,
 } from 'firebase/firestore';
 
 let unsubscribeUsers: Unsubscribe | null = null;
@@ -266,11 +267,13 @@ export function setLocationsUpdateCallback(callback: (locations: LocationItem[])
 // Sync users to Firestore
 import { collection, writeBatch, doc } from "firebase/firestore";
 
+import { writeBatch, doc } from "firebase/firestore";
+
 export async function syncUsersToFirebase(users: User[]) {
-  if (typeof window === 'undefined') return;
+  if (typeof window === "undefined") return;
 
   try {
-    if (!Array.isArray(users)) return;
+    if (!Array.isArray(users) || users.length === 0) return;
 
     const batch = writeBatch(db);
 
@@ -279,19 +282,26 @@ export async function syncUsersToFirebase(users: User[]) {
 
       const ref = doc(db, "users", user.id);
 
-      batch.set(ref, {
-        ...user,
-        lastUpdated: new Date().toISOString(),
-      });
+      batch.set(
+        ref,
+        {
+          id: user.id,
+          username: user.username,
+          role: user.role,
+          locationId: user.locationId,
+          permissions: user.permissions ?? [],
+          lastUpdated: new Date().toISOString(),
+        },
+        { merge: true }
+      );
     });
 
     await batch.commit();
-
   } catch (err) {
-    console.error('Failed to sync users to Firebase:', err);
+    console.error("Failed to sync users to Firebase:", err);
   }
 }
-
+if (!users?.length) return;
 // Listen for users updates from Firestore
 export async function syncToFirebase<T>(
   docName: string,
@@ -343,8 +353,9 @@ async function loadFirestoreData<T>(collectionName: string): Promise<T[] | null>
 }
 }
 
-export async function loadUsersFromFirebase(): Promise<User[] | null> {
-  return loadFirestoreData<User>('users_data');
+export async function loadUsersFromFirebase(): Promise<User[]> {
+  const snap = await getDocs(collection(db, "users"));
+  return snap.docs.map(d => d.data() as User);
 }
 
 export async function loadLocationsFromFirebase(): Promise<LocationItem[] | null> {
@@ -368,22 +379,20 @@ export async function loadFraudChecksFromFirebase(): Promise<FraudCheck[] | null
 }
 
 // Sync inventory to Firestore
+import { writeBatch, doc } from "firebase/firestore";
+
+// Sync inventory to Firestore
 export async function syncInventoryToFirebase(inventory: InventoryItem[]) {
   if (typeof window === 'undefined') return;
 
   try {
-    console.log('SYNCING TO FIREBASE', inventory);
-
-    // ✅ PREVENT EMPTY OVERWRITE WIPE
-    if (!Array.isArray(inventory) || inventory.length === 0) return;
-
-  import { collection, writeBatch, doc } from "firebase/firestore";
-
-export async function syncInventoryToFirebase(inventory: InventoryItem[]) {
-  if (typeof window === 'undefined') return;
-
-  try {
+    // 🚨 Prevent accidental wipes
     if (!Array.isArray(inventory)) return;
+
+    if (inventory.length === 0) {
+      console.warn("Blocked empty inventory overwrite");
+      return;
+    }
 
     const batch = writeBatch(db);
 
@@ -401,13 +410,9 @@ export async function syncInventoryToFirebase(inventory: InventoryItem[]) {
     await batch.commit();
 
     console.log("INVENTORY SYNC SAFE SUCCESS");
+
   } catch (err) {
     console.error("Failed inventory sync:", err);
-  }
-}
-    console.log('FIREBASE SYNC SUCCESS');
-  } catch (err) {
-    console.error('Failed to sync inventory to Firebase:', err);
   }
 }
 
