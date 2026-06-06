@@ -4,7 +4,6 @@ export type Permission = 'Dashboard' | 'Schedule' | 'Inventory' | 'Cancel' | 'Fr
 export interface User {
   id: string; // Firebase Auth UID
   username: string;
-  password?: string;
   role: Role;
   locationId: string;
   permissions?: Permission[];

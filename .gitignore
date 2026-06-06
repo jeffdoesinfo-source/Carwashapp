@@ -1,4 +1,14 @@
-.vercel
+.tmp_*
+node_modules/
+dist/
+build/
+/.env
+/.env.*
+*.log
+## OS
+Thumbs.db
+ehthumbs.db
+.DS_Store.vercel
 node_modules
 .env*.local
 # Android/iOS signing artifacts

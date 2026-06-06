@@ -1,8 +1,11 @@
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "./firebase"; // adjust path if needed
-import { doc, getDoc } from "firebase/firestore";
-import { db } from "./firebase";
+import { signInWithEmailAndPassword, onAuthStateChanged, signOut as firebaseSignOut } from 'firebase/auth';
+import { auth } from './firebase'; // adjust path if needed
+import { doc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
+import { db } from './firebase';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import Sidebar from './components/Sidebar';
+import Topbar from './components/Topbar';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import {
   loadLocalUsers,
   saveLocalUsers,
@@ -28,12 +31,6 @@ import {
   loadSchedulesFromFirebase,
   loadCancelRequestsFromFirebase,
   loadFraudChecksFromFirebase,
-  syncUsersToFirebase,
-  syncInventoryToFirebase,
-  syncSchedulesToFirebase,
-  syncCancelRequestsToFirebase,
-  syncFraudChecksToFirebase,
-  syncLocationsToFirebase,
   listenToUsersUpdates,
   listenToInventoryUpdates,
   listenToSchedulesUpdates,
@@ -236,6 +233,29 @@ function App() {
     return users.filter((item) => item.locationId === appLocationId);
   }, [users, currentUser, selectedLocationId, appLocationId]);
 
+  // Listen for Firebase Auth state changes to map auth -> Firestore user profile
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (fbUser) => {
+      if (!fbUser) {
+        setCurrentUser(null);
+        return;
+      }
+      try {
+        const snap = await getDoc(doc(db, 'users', fbUser.uid));
+        if (snap.exists()) {
+          setCurrentUser(snap.data() as User);
+        } else {
+          setCurrentUser(null);
+        }
+      } catch (err) {
+        console.error('Failed to load user profile for uid', fbUser.uid, err);
+        setCurrentUser(null);
+      }
+    });
+
+    return () => unsub();
+  }, []);
+
   useEffect(() => {
   const initializeApp = async () => {
     const localUsers = await loadLocalUsersAsync();
@@ -258,68 +278,13 @@ function App() {
     setUsersLoaded(true);
     setLocationsLoaded(true);
 
-    const remoteUsers = await loadUsersFromFirebase();
-    const remoteLocations = await loadLocationsFromFirebase();
-    const remoteInventory = await loadInventoryFromFirebase();
-    const remoteSchedules = await loadSchedulesFromFirebase();
-    const remoteCancelRequests = await loadCancelRequestsFromFirebase();
-    const remoteFraudChecks = await loadFraudChecksFromFirebase();
-
-    let effectiveUsers = remoteUsers ?? localUsers;
-    if (!remoteUsers && effectiveUsers.length === 0) {
-      const locationId = localLocations[0]?.id || localDefaultLocation.id;
-      const seededUser: User = {
-        id: generateId(),
-        username: 'JeffArmstrong',
-        password: 'ArmstrongFam2024!',
-        role: 'Admin',
-        locationId,
-      };
-      effectiveUsers = [seededUser];
-      saveLocalUsers(effectiveUsers);
-      await saveLocalUsersAsync(effectiveUsers);
-      await syncUsersToFirebase(effectiveUsers);
-    } else if (remoteUsers) {
-      saveLocalUsers(effectiveUsers);
-      await saveLocalUsersAsync(effectiveUsers);
-    }
-
-    const effectiveLocations = remoteLocations ?? initialLocations;
-    saveLocations(effectiveLocations);
-    if (!remoteLocations && localLocations.length > 0) {
-      await syncLocationsToFirebase(effectiveLocations);
-    }
-
-    const effectiveInventory = remoteInventory ?? localInventory;
-    saveInventory(effectiveInventory);
-    if (!remoteInventory && localInventory.length > 0) {
-      await syncInventoryToFirebase(effectiveInventory);
-    }
-
-    const effectiveSchedules = remoteSchedules ?? localSchedules;
-    saveSchedules(effectiveSchedules);
-    if (!remoteSchedules && localSchedules.length > 0) {
-      await syncSchedulesToFirebase(effectiveSchedules);
-    }
-
-    const effectiveCancelRequests = remoteCancelRequests ?? localCancelRequests;
-    saveCancelRequests(effectiveCancelRequests);
-    if (!remoteCancelRequests && localCancelRequests.length > 0) {
-      await syncCancelRequestsToFirebase(effectiveCancelRequests);
-    }
-
-    const effectiveFraudChecks = remoteFraudChecks ?? localFraudChecks;
-    saveFraudChecks(effectiveFraudChecks);
-    if (!remoteFraudChecks && localFraudChecks.length > 0) {
-      await syncFraudChecksToFirebase(effectiveFraudChecks);
-    }
-
-    setUsers(effectiveUsers);
-    setLocations(effectiveLocations);
-    setInventory(effectiveInventory);
-    setSchedules(effectiveSchedules);
-    setCancelRequests(effectiveCancelRequests);
-    setFraudChecks(effectiveFraudChecks);
+    // Defer any remote reads/writes until after auth. Use local storage for initial state.
+    setUsers(localUsers);
+    setLocations(initialLocations);
+    setInventory(localInventory);
+    setSchedules(localSchedules);
+    setCancelRequests(localCancelRequests);
+    setFraudChecks(localFraudChecks);
 
     setUsersUpdateCallback(setUsers);
     setLocationsUpdateCallback(setLocations);
@@ -328,13 +293,7 @@ function App() {
     setCancelRequestsUpdateCallback(setCancelRequests);
     setFraudChecksUpdateCallback(setFraudChecks);
 
-    listenToUsersUpdates();
-    listenToLocationsUpdates();
-    listenToInventoryUpdates();
-    listenToSchedulesUpdates();
-    listenToCancelRequestsUpdates();
-    listenToFraudChecksUpdates();
-
+    // Listeners for remote collections will be started after auth is available
     setDefaultAdminSeeded(true);
   };
 
@@ -356,6 +315,59 @@ function App() {
       setSelectedLocationId(currentUser.locationId);
     }
   }, [currentUser, locations]);
+
+  // After auth, load remote data with proper location scope and start listeners
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const isAdmin = currentUser.role === 'Admin';
+    const locId = isAdmin && selectedLocationId === ALL_LOCATIONS_ID ? undefined : currentUser.locationId;
+
+    (async () => {
+      // Users: only admin may load full users collection
+      if (isAdmin) {
+        const remoteUsers = await loadUsersFromFirebase(true);
+        if (remoteUsers) {
+          setUsers(remoteUsers);
+          saveLocalUsers(remoteUsers);
+          await saveLocalUsersAsync(remoteUsers);
+        }
+        listenToUsersUpdates(true);
+      }
+
+      // Locations (admin-only full list)
+      const remoteLocations = await loadLocationsFromFirebase();
+      if (remoteLocations) {
+        setLocations(remoteLocations);
+        saveLocations(remoteLocations);
+      }
+
+      // Inventory / schedules / cancel requests: location-scoped for non-admins
+      const inv = await loadInventoryFromFirebase(isAdmin ? undefined : currentUser.locationId, isAdmin);
+      if (inv) setInventory(inv);
+
+      const sch = await loadSchedulesFromFirebase(isAdmin ? undefined : currentUser.locationId, isAdmin);
+      if (sch) setSchedules(sch);
+
+      const canc = await loadCancelRequestsFromFirebase(isAdmin ? undefined : currentUser.locationId, isAdmin);
+      if (canc) setCancelRequests(canc);
+
+      // Fraud is global
+      const fraud = await loadFraudChecksFromFirebase();
+      if (fraud) setFraudChecks(fraud);
+
+      // Start listeners with correct scope
+      listenToLocationsUpdates();
+      listenToFraudChecksUpdates();
+      listenToInventoryUpdates(isAdmin ? undefined : currentUser.locationId, undefined, isAdmin);
+      listenToSchedulesUpdates(isAdmin ? undefined : currentUser.locationId, isAdmin);
+      listenToCancelRequestsUpdates(isAdmin ? undefined : currentUser.locationId, isAdmin);
+    })();
+
+    return () => {
+      unsubscribeFromAllUpdates();
+    };
+  }, [currentUser, selectedLocationId]);
 
   function createHistoryEntry(label: string, details: string, locationId: string) {
     const newEntry: HistoryEntry = {
@@ -450,6 +462,12 @@ function App() {
   };
 
   const signOut = () => {
+    // Sign out from Firebase Auth and clear local app state
+    try {
+      firebaseSignOut(auth);
+    } catch (e) {
+      // ignore
+    }
     setCurrentUser(null);
     setLoginEmail('');
     setLoginPassword('');
@@ -461,7 +479,7 @@ function App() {
   const [newInventory, setNewInventory] = useState({ name: '', quantity: 0, lowInventoryThreshold: 0, notes: '' });
   const [newCancel, setNewCancel] = useState({ customerName: '', licensePlate: '', reason: '' });
   const [newFraud, setNewFraud] = useState({ customerName: '', licensePlate: '', location: '', note: '' });
-  const [newUser, setNewUser] = useState({ username: '', password: '', role: 'Crew' as Role, locationId: '', permissions: getDefaultPermissions('Crew') });
+  const [newUser, setNewUser] = useState({ username: '', email: '', password: '', role: 'Crew' as Role, locationId: '', permissions: getDefaultPermissions('Crew') });
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [newLocationName, setNewLocationName] = useState('');
   const [newLocationThreshold, setNewLocationThreshold] = useState(5);
@@ -548,10 +566,13 @@ function App() {
         : item,
     );
 
-   await syncFraudChecksToFirebase(updatedFraudChecks);
+    const updatedItem = updatedFraudChecks.find((i) => i.id === itemId);
+    if (updatedItem) {
+      await setDoc(doc(db, 'fraud_checks', itemId), updatedItem, { merge: true });
+    }
 
-saveFraudChecks(updatedFraudChecks);
-setFraudChecks(updatedFraudChecks);
+    saveFraudChecks(updatedFraudChecks);
+    setFraudChecks(updatedFraudChecks);
 
     const fraudLocationId = appLocationId || target.location || currentUser.locationId;
     createHistoryEntry(
@@ -578,12 +599,13 @@ setFraudChecks(updatedFraudChecks);
     };
 
     const currentSchedules = loadSchedules();
-const updatedSchedules = [...currentSchedules, newItem];
+    const updatedSchedules = [...currentSchedules, newItem];
 
-await syncSchedulesToFirebase(updatedSchedules);
+    // Write the new schedule as a single document (location-scoped)
+    await setDoc(doc(db, 'schedules', newItem.id), newItem);
 
-saveSchedules(updatedSchedules);
-setSchedules(updatedSchedules);
+    saveSchedules(updatedSchedules);
+    setSchedules(updatedSchedules);
 
     createHistoryEntry(
       'Schedule added',
@@ -614,7 +636,8 @@ setSchedules(updatedSchedules);
     const currentInventory = loadInventory();
     const updatedInventory = [...currentInventory, newItem];
 
-    await syncInventoryToFirebase(updatedInventory);
+    // Create inventory item document
+    await setDoc(doc(db, 'inventory', newItem.id), newItem);
 
     saveInventory(updatedInventory);
     setInventory(updatedInventory);
@@ -641,7 +664,8 @@ setSchedules(updatedSchedules);
   );
 
   try {
-    await syncInventoryToFirebase(updatedInventory);
+    // Delete the document from Firestore (admin only per rules)
+    await deleteDoc(doc(db, 'inventory', itemToDelete.id));
 
     setInventory(updatedInventory);
     saveInventory(updatedInventory);
@@ -652,7 +676,7 @@ setSchedules(updatedSchedules);
       itemToDelete.locationId
     );
   } catch (err) {
-    console.error('Delete sync failed:', err);
+    console.error('Delete failed:', err);
   }
 };
 
@@ -664,12 +688,15 @@ setSchedules(updatedSchedules);
         ? { ...item, quantity: Math.max(0, item.quantity + delta) }
         : item,
     );
-    await syncInventoryToFirebase(updatedInventory);
+    // Persist just the changed item to Firestore
+    const changedItem = updatedInventory.find((item) => item.id === itemId);
+    if (changedItem) {
+      await setDoc(doc(db, 'inventory', changedItem.id), changedItem, { merge: true });
+    }
 
     saveInventory(updatedInventory);
     setInventory(updatedInventory);
 
-    const changedItem = updatedInventory.find((item) => item.id === itemId);
     if (changedItem) {
       createHistoryEntry(
         'Inventory updated',
@@ -693,7 +720,10 @@ setSchedules(updatedSchedules);
     const updatedInventory = currentInventory.map((item) =>
       item.id === itemId ? { ...item, quantity } : item,
     );
-    await syncInventoryToFirebase(updatedInventory);
+    const updatedItem = updatedInventory.find((i) => i.id === itemId);
+    if (updatedItem) {
+      await setDoc(doc(db, 'inventory', updatedItem.id), updatedItem, { merge: true });
+    }
 
     saveInventory(updatedInventory);
     setInventory(updatedInventory);
@@ -718,10 +748,11 @@ setSchedules(updatedSchedules);
    const currentCancelRequests = loadCancelRequests();
 const updatedCancelRequests = [...currentCancelRequests, newItem];
 
-await syncCancelRequestsToFirebase(updatedCancelRequests);
+  // Create cancel request doc
+  await setDoc(doc(db, 'cancel_requests', newItem.id), newItem);
 
-saveCancelRequests(updatedCancelRequests);
-setCancelRequests(updatedCancelRequests);
+  saveCancelRequests(updatedCancelRequests);
+  setCancelRequests(updatedCancelRequests);
 
     createHistoryEntry('Cancel request added', `${newCancel.customerName} / ${newCancel.licensePlate}`, appLocationId);
     setNewCancel({ customerName: '', licensePlate: '', reason: '' });
@@ -737,13 +768,14 @@ setCancelRequests(updatedCancelRequests);
       createdAt: new Date().toISOString(),
     };
 
-   const currentFraudChecks = loadFraudChecks();
-const updatedFraudChecks = [...currentFraudChecks, newItem];
+  const currentFraudChecks = loadFraudChecks();
+  const updatedFraudChecks = [...currentFraudChecks, newItem];
 
-await syncFraudChecksToFirebase(updatedFraudChecks);
+  // Create fraud check document (global)
+  await setDoc(doc(db, 'fraud_checks', newItem.id), newItem);
 
-saveFraudChecks(updatedFraudChecks);
-setFraudChecks(updatedFraudChecks);
+  saveFraudChecks(updatedFraudChecks);
+  setFraudChecks(updatedFraudChecks);
 
     const fraudLocationId = appLocationId || currentUser.locationId;
     createHistoryEntry('Fraud plate check added', `${newFraud.customerName} / ${newFraud.licensePlate}`, fraudLocationId);
@@ -760,46 +792,69 @@ setFraudChecks(updatedFraudChecks);
     if (!currentUser || currentUser.role !== 'Admin' || !newUser.username || !newUser.locationId) return;
     setActionMessage('');
 
-    const updatedUsers = editingUserId
-      ? users.map((user) =>
+    try {
+      if (editingUserId) {
+        // Update Firestore user profile (no passwords stored)
+        const updated = users.map((user) =>
           user.id === editingUserId
-            ? {
-                ...user,
-                username: newUser.username.trim(),
-                password: newUser.password || user.password,
-                role: newUser.role,
-                locationId: newUser.locationId,
-                permissions: newUser.permissions,
-              }
+            ? { ...user, username: newUser.username.trim(), role: newUser.role, locationId: newUser.locationId, permissions: newUser.permissions }
             : user,
-        )
-      : [
-          ...users,
-          {
-            id: generateId(),
-            username: newUser.username.trim(),
+        );
+
+        // write to Firestore document
+        await setDoc(doc(db, 'users', editingUserId), {
+          username: newUser.username.trim(),
+          role: newUser.role,
+          locationId: newUser.locationId,
+          permissions: newUser.permissions,
+        }, { merge: true });
+
+        setUsers(updated);
+        saveLocalUsers(updated);
+        await saveLocalUsersAsync(updated);
+
+        createHistoryEntry('User updated', `${newUser.username} as ${newUser.role}`, newUser.locationId);
+        setActionMessage('User account updated successfully.');
+      } else {
+        // Creating a new user: create Firebase Auth account then create users/{uid} profile
+        if (!newUser.email || !newUser.password) {
+          setActionMessage('Email and password required to create a new user.');
+          return;
+        }
+        // Call admin Cloud Function to create user without affecting admin session
+        try {
+          const functions = getFunctions();
+          const createUserFn = httpsCallable(functions, 'createUser');
+          const result = (await createUserFn({
+            email: newUser.email.trim(),
             password: newUser.password,
+            username: newUser.username.trim(),
             role: newUser.role,
             locationId: newUser.locationId,
             permissions: newUser.permissions,
-          },
-        ];
+          })) as any;
 
-    setUsers(updatedUsers);
-    saveLocalUsers(updatedUsers);
-    await saveLocalUsersAsync(updatedUsers);
-    await syncUsersToFirebase(updatedUsers);
+          const profile: User = result.data.profile as User;
 
-    if (editingUserId) {
-      createHistoryEntry('User updated', `${newUser.username} as ${newUser.role}`, newUser.locationId);
-      setActionMessage('User account updated successfully.');
-    } else {
-      createHistoryEntry('User created', `${newUser.username} as ${newUser.role}`, newUser.locationId);
-      setActionMessage('New user account created successfully.');
+          const updated = [...users, profile];
+          setUsers(updated);
+          saveLocalUsers(updated);
+          await saveLocalUsersAsync(updated);
+
+          createHistoryEntry('User created', `${newUser.username} as ${newUser.role}`, newUser.locationId);
+          setActionMessage('New user account created.');
+        } catch (err: any) {
+          console.error('createUser function failed', err);
+          setActionMessage(err?.message || 'Failed to create user via Cloud Function');
+        }
+      }
+    } catch (err: any) {
+      console.error('User create/update failed:', err);
+      setActionMessage(err?.message || 'Failed to create or update user');
     }
 
     setEditingUserId(null);
-    setNewUser({ username: '', password: '', role: 'Crew', locationId: locations[0]?.id || '', permissions: getDefaultPermissions('Crew') });
+    setNewUser({ username: '', email: '', password: '', role: 'Crew', locationId: locations[0]?.id || '', permissions: getDefaultPermissions('Crew') });
   };
 
   const handleDeleteUser = async (userId: string) => {
@@ -814,27 +869,15 @@ setFraudChecks(updatedFraudChecks);
 
    const updatedUsers = users.filter((user) => user.id !== userId);
 
-    try {
-      await syncUsersToFirebase(updatedUsers);
-
-      setUsers(updatedUsers);
-      saveLocalUsers(updatedUsers);
-      await saveLocalUsersAsync(updatedUsers);
-
-      createHistoryEntry(
-        'User deleted',
-        `${userToDelete.username} removed`,
-        userToDelete.locationId,
-      );
-    } catch (err) {
-      console.error('Failed to delete user in Firebase:', err);
-    }
+    // Deleting users must be performed server-side via an Admin Cloud Function.
+    setActionMessage('User deletion must be performed via the Admin Cloud Function.');
   };
 
   const handleEditUser = (user: User) => {
     setEditingUserId(user.id);
     setNewUser({
       username: user.username,
+      email: (user as any).email ?? '',
       password: '',
       role: user.role,
       locationId: user.locationId,
@@ -845,7 +888,7 @@ setFraudChecks(updatedFraudChecks);
 
   const handleCancelEditUser = () => {
     setEditingUserId(null);
-    setNewUser({ username: '', password: '', role: 'Crew', locationId: locations[0]?.id || '', permissions: getDefaultPermissions('Crew') });
+    setNewUser({ username: '', email: '', password: '', role: 'Crew', locationId: locations[0]?.id || '', permissions: getDefaultPermissions('Crew') });
     setActionMessage('');
   };
 
@@ -858,10 +901,11 @@ setFraudChecks(updatedFraudChecks);
       lowInventoryThreshold: newLocationThreshold,
     };
 
- const currentLocations = loadLocations();
+const currentLocations = loadLocations();
 const updatedLocations = [...currentLocations, newLocation];
 
-await syncLocationsToFirebase(updatedLocations);
+// Persist new location doc (admin only)
+await setDoc(doc(db, 'locations', newLocation.id), newLocation);
 
 saveLocations(updatedLocations);
 setLocations(updatedLocations);
@@ -887,19 +931,27 @@ setLocations(updatedLocations);
             }
           : item,
       );
-      await syncSchedulesToFirebase(updatedSchedules);
 
-saveSchedules(updatedSchedules);
-setSchedules(updatedSchedules);
+      const updatedItem = updatedSchedules.find((s) => s.id === itemId);
+      if (updatedItem) {
+        await setDoc(doc(db, 'schedules', updatedItem.id), updatedItem, { merge: true });
+      }
+
+    saveSchedules(updatedSchedules);
+    setSchedules(updatedSchedules);
     } else if (collectionName === 'cancelRequests') {
       const currentCancelRequests = loadCancelRequests();
       const updatedCancelRequests = currentCancelRequests.map(item =>
         item.id === itemId ? { ...item, done: !currentValue } : item
       );
-     await syncCancelRequestsToFirebase(updatedCancelRequests);
 
-saveCancelRequests(updatedCancelRequests);
-setCancelRequests(updatedCancelRequests);
+      const updatedRequest = updatedCancelRequests.find((r) => r.id === itemId);
+      if (updatedRequest) {
+        await setDoc(doc(db, 'cancel_requests', updatedRequest.id), updatedRequest, { merge: true });
+      }
+
+    saveCancelRequests(updatedCancelRequests);
+    setCancelRequests(updatedCancelRequests);
     }
 
     createHistoryEntry(`${label} updated`, details, appLocationId);
@@ -963,44 +1015,61 @@ setCancelRequests(updatedCancelRequests);
 
   return (
     <div className="app-shell">
-      <div className="header">
-        <div>
-          <h1>Carwash Staff Management</h1>
-          <p>
-            Signed in as <strong>{currentUser.username}</strong> ({currentUser.role})
-          </p>
-          <p>Location: {appLocation?.name || 'All locations'}</p>
-        </div>
-        <div>
-          {currentUser.role === 'Admin' && (
-            <label>
-              Active location
-              <select value={selectedLocationId} onChange={(event) => setSelectedLocationId(event.target.value)}>
-                <option value={ALL_LOCATIONS_ID}>All locations</option>
-                {locations.map((location) => (
-                  <option key={location.id} value={location.id}>
-                    {location.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          <button className="secondary" onClick={signOut}>
-            Sign out
-          </button>
-        </div>
-      </div>
+      {/* Sidebar + main layout */}
+      <div style={{display:'flex',width:'100%'}}>
+        <aside style={{width:220}}>
+          <Sidebar tabs={availableTabs} activeTab={activeTab} onSelect={(t) => setActiveTab(t as any)} />
+        </aside>
+        <main style={{flex:1}}>
+          <Topbar
+            currentUser={currentUser}
+            locationName={appLocation?.name}
+            unreadCount={dashboardCounts.notifications}
+            locations={locations}
+            selectedLocationId={selectedLocationId}
+            onLocationChange={(id: string) => setSelectedLocationId(id)}
+            onSignOut={signOut}
+          />
+          <div className="header">
+            <div>
+              <h1>Carwash Staff Management</h1>
+              <p>
+                Signed in as <strong>{currentUser.username}</strong> ({currentUser.role})
+              </p>
+              <p>Location: {appLocation?.name || 'All locations'}</p>
+            </div>
+            <div>
+              {currentUser.role === 'Admin' && (
+                <label>
+                  Active location
+                  <select value={selectedLocationId} onChange={(event) => setSelectedLocationId(event.target.value)}>
+                    <option value={ALL_LOCATIONS_ID}>All locations</option>
+                    {locations.map((location) => (
+                      <option key={location.id} value={location.id}>
+                        {location.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <button className="secondary" onClick={signOut}>
+                Sign out
+              </button>
+            </div>
+          </div>
 
-      <div className="nav-tabs">
-        {availableTabs.map((tab) => (
-          <button
-            key={tab}
-            className={`tab-button ${activeTab === tab ? 'active' : ''}`}
-            onClick={() => setActiveTab(tab)}
-          >
-            {tab}
-          </button>
-        ))}
+          <div className="nav-tabs">
+            {availableTabs.map((tab) => (
+              <button
+                key={tab}
+                className={`tab-button ${activeTab === tab ? 'active' : ''}`}
+                onClick={() => setActiveTab(tab)}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+        </main>
       </div>
 
       {activeTab === 'Dashboard' && (
@@ -1638,6 +1707,10 @@ setCancelRequests(updatedCancelRequests);
                 <input value={newUser.username} onChange={(event) => setNewUser({ ...newUser, username: event.target.value })} />
               </label>
               <label>
+                Email
+                <input value={newUser.email} onChange={(event) => setNewUser({ ...newUser, email: event.target.value })} />
+              </label>
+              <label>
                 Password
                 <input type="password" value={newUser.password} onChange={(event) => setNewUser({ ...newUser, password: event.target.value })} />
               </label>
@@ -1720,10 +1793,15 @@ setCancelRequests(updatedCancelRequests);
                       const updatedLocations = locations.map((loc) =>
                         loc.id === location.id ? { ...loc, lowInventoryThreshold: threshold } : loc,
                       );
-                     await syncLocationsToFirebase(updatedLocations);
 
-saveLocations(updatedLocations);
-setLocations(updatedLocations);
+                      // Persist the single updated location doc
+                      const updated = updatedLocations.find((loc) => loc.id === location.id);
+                      if (updated) {
+                        await setDoc(doc(db, 'locations', updated.id), updated, { merge: true });
+                      }
+
+                      saveLocations(updatedLocations);
+                      setLocations(updatedLocations);
 
 setLocationThresholdEdits((prev) => {
   const next = { ...prev };

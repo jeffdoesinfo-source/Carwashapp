@@ -8,6 +8,8 @@ import {
   writeBatch,
   deleteDoc,
   setDoc,
+  query,
+  where,
   DocumentData,
   QuerySnapshot,
   Unsubscribe,
@@ -279,11 +281,25 @@ function snapshotToArray<T>(snapshot: QuerySnapshot<DocumentData>): T[] {
   return snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as object) } as T));
 }
 
-async function loadCollectionFromFirebase<T>(collectionName: string): Promise<T[] | null> {
+// Load a collection optionally filtered by locationId. For non-admin callers
+// the app MUST pass the caller's `locationId`. If neither `locationId` nor
+// `allowAll` is provided, the function will return null to avoid unfiltered reads.
+async function loadCollectionFromFirebase<T>(collectionName: string, locationId?: string, allowAll = false): Promise<T[] | null> {
   if (typeof window === 'undefined') return null;
   try {
-    const collectionRef = collection(db, collectionName);
-    const snapshot = await getDocs(collectionRef);
+    let snapshot;
+    if (!allowAll && !locationId) {
+      console.warn(`Refusing to load ${collectionName} without locationId or allowAll=true (prevents unfiltered reads).`);
+      return null;
+    }
+
+    if (locationId && !allowAll) {
+      const q = query(collection(db, collectionName), where('locationId', '==', locationId));
+      snapshot = await getDocs(q);
+    } else {
+      const collectionRef = collection(db, collectionName);
+      snapshot = await getDocs(collectionRef);
+    }
     return snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as object) } as T));
   } catch (err) {
     console.error(`Failed to load ${collectionName} from Firebase:`, err);
@@ -298,43 +314,29 @@ async function syncCollectionToFirebase<T extends { id: string }>(collectionName
     console.warn(`Skipping ${collectionName} sync because payload is empty; this prevents accidental collection wipes.`);
     return;
   }
-
-  try {
-    const collectionRef = collection(db, collectionName);
-    const batch = writeBatch(db);
-    const existingSnapshot = await getDocs(collectionRef);
-    const incomingIds = new Set<string>();
-
-    for (const item of items) {
-      if (!item?.id) {
-        console.warn(`Skipping ${collectionName} item without id`, item);
-        continue;
-      }
-      incomingIds.add(item.id);
-      const docRef = doc(collectionRef, item.id);
-      batch.set(docRef, item as DocumentData, { merge: true });
-    }
-
-    for (const existingDoc of existingSnapshot.docs) {
-      if (!incomingIds.has(existingDoc.id)) {
-        batch.delete(doc(collectionRef, existingDoc.id));
-      }
-    }
-
-    await batch.commit();
-  } catch (err) {
-    console.error(`Failed to sync ${collectionName} to Firebase:`, err);
-  }
+  // Disabled: bulk syncing an entire collection from client-side is unsafe
+  // (can delete documents and bypass RBAC). Use per-document writes
+  // (`setDoc`, `updateDoc`, `deleteDoc`) or implement a server-side sync
+  // Cloud Function that runs with Admin privileges.
+  throw new Error('syncCollectionToFirebase is disabled on the client. Use per-document writes or a server-side Admin sync.');
 }
 
 // Sync users to Firestore
 export async function syncUsersToFirebase(users: User[]) {
-  await syncCollectionToFirebase<User>(COLLECTION_USERS, users);
+  // Disabled: bulk user sync from client is unsafe. Use server-side Admin functions
+  // to create/delete users and per-document writes for updates.
+  throw new Error('syncUsersToFirebase is disabled on the client. Use per-document writes or a server-side admin sync.');
 }
 
 // Listen for users updates from Firestore
-export function listenToUsersUpdates() {
+// Users updates: ADMIN-only real-time subscription. Non-admin clients must not
+// call this. Provide `allowAll=true` only when caller verified admin client-side.
+export function listenToUsersUpdates(allowAll = false) {
   if (typeof window === 'undefined') return;
+  if (!allowAll) {
+    console.warn('listenToUsersUpdates requires allowAll=true for admin subscriptions; skipping listener.');
+    return;
+  }
   try {
     unsubscribeUsers = onSnapshot(collection(db, COLLECTION_USERS), async (snapshot) => {
       const users = snapshotToArray<User>(snapshot);
@@ -347,41 +349,50 @@ export function listenToUsersUpdates() {
   }
 }
 
-export async function loadUsersFromFirebase(): Promise<User[] | null> {
-  return loadCollectionFromFirebase<User>(COLLECTION_USERS);
+export async function loadUsersFromFirebase(allowAll = false): Promise<User[] | null> {
+  return loadCollectionFromFirebase<User>(COLLECTION_USERS, undefined, allowAll);
 }
 
 export async function loadLocationsFromFirebase(): Promise<LocationItem[] | null> {
-  return loadCollectionFromFirebase<LocationItem>(COLLECTION_LOCATIONS);
+  return loadCollectionFromFirebase<LocationItem>(COLLECTION_LOCATIONS, undefined, true);
 }
 
-export async function loadInventoryFromFirebase(): Promise<InventoryItem[] | null> {
-  return loadCollectionFromFirebase<InventoryItem>(COLLECTION_INVENTORY);
+export async function loadInventoryFromFirebase(locationId?: string, allowAll = false): Promise<InventoryItem[] | null> {
+  return loadCollectionFromFirebase<InventoryItem>(COLLECTION_INVENTORY, locationId, allowAll);
 }
 
-export async function loadSchedulesFromFirebase(): Promise<ScheduleItem[] | null> {
-  return loadCollectionFromFirebase<ScheduleItem>(COLLECTION_SCHEDULES);
+export async function loadSchedulesFromFirebase(locationId?: string, allowAll = false): Promise<ScheduleItem[] | null> {
+  return loadCollectionFromFirebase<ScheduleItem>(COLLECTION_SCHEDULES, locationId, allowAll);
 }
 
-export async function loadCancelRequestsFromFirebase(): Promise<CancelRequest[] | null> {
-  return loadCollectionFromFirebase<CancelRequest>(COLLECTION_CANCEL_REQUESTS);
+export async function loadCancelRequestsFromFirebase(locationId?: string, allowAll = false): Promise<CancelRequest[] | null> {
+  return loadCollectionFromFirebase<CancelRequest>(COLLECTION_CANCEL_REQUESTS, locationId, allowAll);
 }
 
 export async function loadFraudChecksFromFirebase(): Promise<FraudCheck[] | null> {
-  return loadCollectionFromFirebase<FraudCheck>(COLLECTION_FRAUD_CHECKS);
+  // Fraud checks are global/shared
+  return loadCollectionFromFirebase<FraudCheck>(COLLECTION_FRAUD_CHECKS, undefined, true);
 }
 
 // Sync inventory to Firestore
 export async function syncInventoryToFirebase(inventory: InventoryItem[]) {
-  await syncCollectionToFirebase<InventoryItem>(COLLECTION_INVENTORY, inventory);
+  // Disabled: bulk inventory sync from client is unsafe.
+  throw new Error('syncInventoryToFirebase is disabled on the client. Use per-document writes (setDoc/updateDoc/deleteDoc).');
 }
 
 // Listen for inventory updates from Firestore
-export function listenToInventoryUpdates(callback?: (inventory: InventoryItem[]) => void) {
+// Listen for inventory updates. Non-admin callers MUST provide `locationId`.
+// Admins may pass `allowAll=true` to receive all inventory.
+export function listenToInventoryUpdates(locationId?: string, callback?: (inventory: InventoryItem[]) => void, allowAll = false) {
   if (typeof window === 'undefined') return () => {};
+  if (!allowAll && !locationId) {
+    console.warn('listenToInventoryUpdates requires locationId for non-admin callers; skipping listener.');
+    return () => {};
+  }
 
   try {
-    unsubscribeInventory = onSnapshot(collection(db, COLLECTION_INVENTORY), (snapshot) => {
+    const ref = allowAll ? collection(db, COLLECTION_INVENTORY) : query(collection(db, COLLECTION_INVENTORY), where('locationId', '==', locationId));
+    unsubscribeInventory = onSnapshot(ref, (snapshot) => {
       const inventory = snapshotToArray<InventoryItem>(snapshot);
       saveInventory(inventory);
       if (callback) callback(inventory);
@@ -396,14 +407,20 @@ export function listenToInventoryUpdates(callback?: (inventory: InventoryItem[])
 
 // Sync schedules to Firestore
 export async function syncSchedulesToFirebase(schedules: ScheduleItem[]) {
-  await syncCollectionToFirebase<ScheduleItem>(COLLECTION_SCHEDULES, schedules);
+  // Disabled: bulk schedules sync from client is unsafe.
+  throw new Error('syncSchedulesToFirebase is disabled on the client. Use per-document writes (setDoc/updateDoc/deleteDoc).');
 }
 
 // Listen for schedules updates from Firestore
-export function listenToSchedulesUpdates() {
+export function listenToSchedulesUpdates(locationId?: string, allowAll = false) {
   if (typeof window === 'undefined') return;
+  if (!allowAll && !locationId) {
+    console.warn('listenToSchedulesUpdates requires locationId for non-admin callers; skipping listener.');
+    return;
+  }
   try {
-    unsubscribeSchedules = onSnapshot(collection(db, COLLECTION_SCHEDULES), (snapshot) => {
+    const ref = allowAll ? collection(db, COLLECTION_SCHEDULES) : query(collection(db, COLLECTION_SCHEDULES), where('locationId', '==', locationId));
+    unsubscribeSchedules = onSnapshot(ref, (snapshot) => {
       const schedules = snapshotToArray<ScheduleItem>(snapshot);
       saveSchedules(schedules);
       if (schedulesUpdateCallback) schedulesUpdateCallback(schedules);
@@ -415,14 +432,20 @@ export function listenToSchedulesUpdates() {
 
 // Sync cancel requests to Firestore
 export async function syncCancelRequestsToFirebase(requests: CancelRequest[]) {
-  await syncCollectionToFirebase<CancelRequest>(COLLECTION_CANCEL_REQUESTS, requests);
+  // Disabled: bulk cancel_requests sync from client is unsafe.
+  throw new Error('syncCancelRequestsToFirebase is disabled on the client. Use per-document writes (setDoc/updateDoc/deleteDoc).');
 }
 
 // Listen for cancel requests updates from Firestore
-export function listenToCancelRequestsUpdates() {
+export function listenToCancelRequestsUpdates(locationId?: string, allowAll = false) {
   if (typeof window === 'undefined') return;
+  if (!allowAll && !locationId) {
+    console.warn('listenToCancelRequestsUpdates requires locationId for non-admin callers; skipping listener.');
+    return;
+  }
   try {
-    unsubscribeCancelRequests = onSnapshot(collection(db, COLLECTION_CANCEL_REQUESTS), (snapshot) => {
+    const ref = allowAll ? collection(db, COLLECTION_CANCEL_REQUESTS) : query(collection(db, COLLECTION_CANCEL_REQUESTS), where('locationId', '==', locationId));
+    unsubscribeCancelRequests = onSnapshot(ref, (snapshot) => {
       const requests = snapshotToArray<CancelRequest>(snapshot);
       saveCancelRequests(requests);
       if (cancelRequestsUpdateCallback) cancelRequestsUpdateCallback(requests);
@@ -434,7 +457,8 @@ export function listenToCancelRequestsUpdates() {
 
 // Sync fraud checks to Firestore
 export async function syncFraudChecksToFirebase(checks: FraudCheck[]) {
-  await syncCollectionToFirebase<FraudCheck>(COLLECTION_FRAUD_CHECKS, checks);
+  // Disabled: bulk fraud checks sync from client is unsafe. Use per-document writes.
+  throw new Error('syncFraudChecksToFirebase is disabled on the client. Use per-document writes (setDoc/updateDoc/deleteDoc).');
 }
 
 // Listen for fraud checks updates from Firestore
@@ -453,7 +477,8 @@ export function listenToFraudChecksUpdates() {
 
 // Sync locations to Firestore
 export async function syncLocationsToFirebase(locations: LocationItem[]) {
-  await syncCollectionToFirebase<LocationItem>(COLLECTION_LOCATIONS, locations);
+  // Disabled: bulk locations sync from client is unsafe. Use per-document writes.
+  throw new Error('syncLocationsToFirebase is disabled on the client. Use per-document writes (setDoc/updateDoc/deleteDoc).');
 }
 
 // Listen for locations updates from Firestore

@@ -1,0 +1,125 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper: caller user document (may be null if not signed in)
+    function caller() {
+      return request.auth != null
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data
+        : null;
+    }
+
+    function isSignedIn() { return request.auth != null; }
+    function isAdmin() { return isSignedIn() && caller().role == 'Admin'; }
+    function isManager() { return isSignedIn() && (caller().role == 'Manager' || caller().role == 'Admin'); }
+    function sameLocationAsCaller(locId) {
+      return isAdmin() || (isSignedIn() && caller().locationId == locId);
+    }
+
+    // 1) Users collection
+    match /users/{userId} {
+      // Reading
+      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow list: if isSignedIn() && isAdmin();
+
+      // Creation must be performed server-side by Admin SDK / Cloud Function.
+      // Deny client creations.
+      allow create: if false;
+
+      // Updates: admin may update any user. A non-admin may update their own profile
+      // but may not change protected properties (role, locationId, permissions, id).
+      allow update: if isSignedIn() && (
+        isAdmin()
+        || (
+          request.auth.uid == userId
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.locationId == resource.data.locationId
+          && request.resource.data.permissions == resource.data.permissions
+          && request.resource.data.id == resource.data.id
+        )
+      );
+
+      // Deletes must be performed server-side (Admin SDK). Block client deletes.
+      allow delete: if false;
+    }
+
+    // 2) Inventory - per-location
+    match /inventory/{itemId} {
+      allow get: if isSignedIn() && (
+        isAdmin() || sameLocationAsCaller(resource.data.locationId)
+      );
+
+      // Allow queries only when caller filters by locationId (client should include
+      // `.where('locationId', '==', caller.locationId)` ), otherwise Firestore will reject
+      // the query because it cannot be satisfied securely.
+      allow list: if isSignedIn() && (
+        isAdmin() || (request.query.where('locationId') == caller().locationId)
+      );
+
+      // Writes only by Admins or Managers and restricted to their location
+      allow create, update, delete: if isSignedIn() && (
+        (isAdmin())
+        || (
+          isManager()
+          && sameLocationAsCaller(request.resource.data.locationId)
+        )
+      );
+    }
+
+    // 3) Schedules - per-location (same pattern as inventory)
+    match /schedules/{scheduleId} {
+      allow get: if isSignedIn() && (
+        isAdmin() || sameLocationAsCaller(resource.data.locationId)
+      );
+
+      allow list: if isSignedIn() && (
+        isAdmin() || (request.query.where('locationId') == caller().locationId)
+      );
+
+      allow create, update, delete: if isSignedIn() && (
+        (isAdmin())
+        || (
+          isManager()
+          && sameLocationAsCaller(request.resource.data.locationId)
+        )
+      );
+    }
+
+    // 4) Cancel requests - per-location
+    match /cancel_requests/{reqId} {
+      allow get: if isSignedIn() && (
+        isAdmin() || sameLocationAsCaller(resource.data.locationId)
+      );
+
+      allow list: if isSignedIn() && (
+        isAdmin() || (request.query.where('locationId') == caller().locationId)
+      );
+
+      allow create, update, delete: if isSignedIn() && (
+        (isAdmin())
+        || (
+          isManager()
+          && sameLocationAsCaller(request.resource.data.locationId)
+        )
+      );
+    }
+
+    // 5) Fraud checks - global/shared across locations
+    // All authenticated users can read and write these records.
+    match /fraud/{docId} {
+      allow read, write: if isSignedIn();
+      allow list: if isSignedIn();
+    }
+
+    // 6) Locations collection
+    match /locations/{locId} {
+      allow get, list: if isSignedIn();
+      allow create, update, delete: if isSignedIn() && isAdmin();
+    }
+
+    // Deny everything else explicitly (no open rules)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
