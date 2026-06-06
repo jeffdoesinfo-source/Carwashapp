@@ -395,7 +395,11 @@ export function listenToInventoryUpdates(locationId?: string, callback?: (invent
     unsubscribeInventory = onSnapshot(ref, (snapshot) => {
       const inventory = snapshotToArray<InventoryItem>(snapshot);
       saveInventory(inventory);
-      if (callback) callback(inventory);
+      if (callback) {
+        callback(inventory);
+      } else if (inventoryUpdateCallback) {
+        inventoryUpdateCallback(inventory);
+      }
     });
 
     return unsubscribeInventory;
