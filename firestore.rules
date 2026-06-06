@@ -106,7 +106,7 @@ service cloud.firestore {
 
     // 5) Fraud checks - global/shared across locations
     // All authenticated users can read and write these records.
-    match /fraud/{docId} {
+    match /fraud_checks/{docId} {
       allow read, write: if isSignedIn();
       allow list: if isSignedIn();
     }
