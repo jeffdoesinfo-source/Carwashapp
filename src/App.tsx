@@ -2,7 +2,7 @@ import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "./firebase"; // adjust path if needed
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "./firebase";
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   loadLocalUsers,
   saveLocalUsers,
@@ -61,7 +61,7 @@ import type {
   User,
 } from './types';
 
-const tabs = ['Dashboard', 'Schedule', 'Inventory', 'Cancel Requests', 'Fraud Plate Check', 'History', 'Admin'] as const;
+const tabs = ['Dashboard', 'Schedules', 'Chores', 'Inventory', 'Cancel Requests', 'Fraud Plate Check', 'History', 'Admin'] as const;
 const permissionOptions: { value: Permission; label: string }[] = [
   { value: 'Dashboard', label: 'Dashboard access' },
   { value: 'Schedule', label: 'Schedule access' },
@@ -74,7 +74,8 @@ const permissionOptions: { value: Permission; label: string }[] = [
 
 const tabPermissionMap: Record<typeof tabs[number], Permission> = {
   Dashboard: 'Dashboard',
-  Schedule: 'Schedule',
+  Schedules: 'Schedule',
+  Chores: 'Schedule',
   Inventory: 'Inventory',
   'Cancel Requests': 'Cancel',
   'Fraud Plate Check': 'Fraud',
@@ -153,7 +154,89 @@ function App() {
     return users.filter((item) => item.locationId === appLocationId);
   }, [users, appLocationId, currentUser, selectedLocationId]);
 
-useEffect(() => {
+  const visibleInventory = useMemo(() => {
+    if (!currentUser) return [];
+    if (currentUser.role === 'Admin' && selectedLocationId === ALL_LOCATIONS_ID) {
+      return inventory;
+    }
+    return inventory.filter((item) => item.locationId === appLocationId);
+  }, [inventory, currentUser, selectedLocationId, appLocationId]);
+
+  const visibleSchedules = useMemo(() => {
+    if (!currentUser) return [];
+    if (currentUser.role === 'Admin') {
+      if (selectedLocationId === ALL_LOCATIONS_ID) {
+        return schedules;
+      }
+      return schedules.filter((item) => item.locationId === appLocationId);
+    }
+    return schedules.filter(
+      (item) => item.locationId === appLocationId && item.assignedTo === currentUser.username,
+    );
+  }, [schedules, currentUser, selectedLocationId, appLocationId]);
+
+  const visibleShiftSchedules = useMemo(
+    () => visibleSchedules.filter((item) => item.type === 'Shift'),
+    [visibleSchedules],
+  );
+
+  const visibleChoreSchedules = useMemo(
+    () => visibleSchedules.filter((item) => item.type !== 'Shift'),
+    [visibleSchedules],
+  );
+
+  const getShiftTeam = useCallback(
+    (shift: ScheduleItem) => {
+      if (!shift.assignedTo || !shift.date || !shift.startTime) return [];
+      return schedules
+        .filter(
+          (item) =>
+            item.type === 'Shift' &&
+            item.locationId === shift.locationId &&
+            item.date === shift.date &&
+            item.startTime === shift.startTime &&
+            item.id !== shift.id &&
+            item.assignedTo,
+        )
+        .map((item) => item.assignedTo)
+        .filter((name, index, array) => name && array.indexOf(name) === index && name !== shift.assignedTo);
+    },
+    [schedules],
+  );
+
+  const visibleCancelRequests = useMemo(() => {
+    if (!currentUser) return [];
+    if (currentUser.role === 'Admin' && selectedLocationId === ALL_LOCATIONS_ID) {
+      return cancelRequests;
+    }
+    return cancelRequests.filter((item) => item.locationId === appLocationId);
+  }, [cancelRequests, currentUser, selectedLocationId, appLocationId]);
+
+  const visibleHistory = useMemo(() => {
+    if (!currentUser) return [];
+    if (currentUser.role === 'Admin' && selectedLocationId === ALL_LOCATIONS_ID) {
+      return history;
+    }
+    return history.filter((item) => item.locationId === appLocationId);
+  }, [history, currentUser, selectedLocationId, appLocationId]);
+
+  const visibleNotifications = useMemo(() => {
+    if (!currentUser) return [];
+    if (currentUser.role === 'Admin' && selectedLocationId === ALL_LOCATIONS_ID) {
+      return notifications;
+    }
+    return notifications.filter((item) => item.locationId === appLocationId);
+  }, [notifications, currentUser, selectedLocationId, appLocationId]);
+
+  const visibleUsers = useMemo(() => {
+    if (!currentUser) return [];
+    if (currentUser.role === 'Admin' && selectedLocationId === ALL_LOCATIONS_ID) {
+      return users;
+    }
+    return users.filter((item) => item.locationId === appLocationId);
+  }, [users, currentUser, selectedLocationId, appLocationId]);
+
+  useEffect(() => {
   const initializeApp = async () => {
     const localUsers = await loadLocalUsersAsync();
     const localLocations = loadLocations();
@@ -375,7 +458,7 @@ useEffect(() => {
   };
 
   const [newSchedule, setNewSchedule] = useState({ title: '', date: '', startTime: '', endTime: '', type: 'Shift' as ScheduleItem['type'], assignedTo: '' });
-  const [newInventory, setNewInventory] = useState({ name: '', quantity: 0, notes: '' });
+  const [newInventory, setNewInventory] = useState({ name: '', quantity: 0, lowInventoryThreshold: 0, notes: '' });
   const [newCancel, setNewCancel] = useState({ customerName: '', licensePlate: '', reason: '' });
   const [newFraud, setNewFraud] = useState({ customerName: '', licensePlate: '', location: '', note: '' });
   const [newUser, setNewUser] = useState({ username: '', password: '', role: 'Crew' as Role, locationId: '', permissions: getDefaultPermissions('Crew') });
@@ -391,21 +474,21 @@ useEffect(() => {
   }, [locations, newUser.locationId]);
 
   const appLocation = locations.find((item) => item.id === appLocationId);
-  const shiftSchedules = useMemo(() => schedules.filter((item) => item.type === 'Shift'), [schedules]);
-  const choreSchedules = useMemo(() => schedules.filter((item) => item.type !== 'Shift'), [schedules]);
+  const shiftSchedules = useMemo(() => visibleSchedules.filter((item) => item.type === 'Shift'), [visibleSchedules]);
+  const choreSchedules = useMemo(() => visibleSchedules.filter((item) => item.type !== 'Shift'), [visibleSchedules]);
   const unreadNotifications = useMemo(() => {
     if (currentUser?.role === 'Admin' && selectedLocationId === ALL_LOCATIONS_ID) {
-      return notifications.filter((item) => !item.read);
+      return visibleNotifications.filter((item) => !item.read);
     }
-    return notifications.filter((item) => !item.read && item.locationId === appLocationId);
-  }, [notifications, appLocationId, currentUser, selectedLocationId]);
+    return visibleNotifications.filter((item) => !item.read);
+  }, [visibleNotifications, currentUser, selectedLocationId]);
   const displayedFraudChecks = useMemo(() => {
     const searchText = fraudSearch.trim().toLowerCase();
     if (!searchText) return fraudChecks;
     return fraudChecks.filter((item) =>
       item.customerName.toLowerCase().includes(searchText)
       || item.licensePlate.toLowerCase().includes(searchText)
-      || item.location.toLowerCase().includes(searchText)
+      || (item.location?.toLowerCase().includes(searchText) ?? false)
       || (item.membership?.toLowerCase().includes(searchText) ?? false),
     );
   }, [fraudChecks, fraudSearch]);
@@ -435,11 +518,7 @@ useEffect(() => {
 
     const scheduleByLocation = Object.values(scheduleGroups).sort((a, b) => a.locationName.localeCompare(b.locationName));
     const lowInventoryAlerts = inventory
-      .filter((item) => {
-        const location = locations.find((loc) => loc.id === item.locationId);
-        const threshold = location?.lowInventoryThreshold ?? 5;
-        return item.quantity <= threshold;
-      })
+      .filter((item) => item.quantity <= item.lowInventoryThreshold)
       .map((item) => ({
         ...item,
         locationName: locations.find((loc) => loc.id === item.locationId)?.name || 'Unknown location',
@@ -474,7 +553,7 @@ useEffect(() => {
 saveFraudChecks(updatedFraudChecks);
 setFraudChecks(updatedFraudChecks);
 
-    const fraudLocationId = appLocationId || target.location;
+    const fraudLocationId = appLocationId || target.location || currentUser.locationId;
     createHistoryEntry(
       'Fraud plate resolved',
       `${target.customerName} / ${target.licensePlate} (${membership || 'No membership'}) - ${active ? 'Active' : 'Not Active'}`,
@@ -532,16 +611,16 @@ setSchedules(updatedSchedules);
       locationId: appLocationId,
     };
 
-   const currentInventory = loadInventory();
-const updatedInventory = [...currentInventory, newItem];
+    const currentInventory = loadInventory();
+    const updatedInventory = [...currentInventory, newItem];
 
-await syncInventoryToFirebase(updatedInventory);
+    await syncInventoryToFirebase(updatedInventory);
 
-saveInventory(updatedInventory);
-setInventory(updatedInventory);
+    saveInventory(updatedInventory);
+    setInventory(updatedInventory);
 
     createHistoryEntry('Inventory added', `${newInventory.name} x${newInventory.quantity}`, appLocationId);
-    setNewInventory({ name: '', quantity: 0, notes: '' });
+    setNewInventory({ name: '', quantity: 0, lowInventoryThreshold: 0, notes: '' });
   };
 
  const handleDeleteInventory = async (itemId: string) => {
@@ -585,17 +664,10 @@ setInventory(updatedInventory);
         ? { ...item, quantity: Math.max(0, item.quantity + delta) }
         : item,
     );
-   await syncInventoryToFirebase(updatedInventory);
+    await syncInventoryToFirebase(updatedInventory);
 
-saveInventory(updatedInventory);
-
-setInventory(
-  updatedInventory.filter(
-    (item) =>
-      currentUser.role === 'Admin' ||
-      item.locationId === appLocationId
-  )
-);
+    saveInventory(updatedInventory);
+    setInventory(updatedInventory);
 
     const changedItem = updatedInventory.find((item) => item.id === itemId);
     if (changedItem) {
@@ -623,15 +695,8 @@ setInventory(
     );
     await syncInventoryToFirebase(updatedInventory);
 
-saveInventory(updatedInventory);
-
-setInventory(
-  updatedInventory.filter(
-    (item) =>
-      currentUser.role === 'Admin' ||
-      item.locationId === appLocationId
-  )
-);
+    saveInventory(updatedInventory);
+    setInventory(updatedInventory);
     createHistoryEntry(
       'Inventory quantity set',
       `${target.name} quantity changed to ${quantity}`,
@@ -889,13 +954,11 @@ setCancelRequests(updatedCancelRequests);
   }
 
   const dashboardCounts = {
-    inventory: inventory.length,
-    schedules: schedules.length,
-    cancelRequests: cancelRequests.filter((item) => !item.done).length,
+    inventory: visibleInventory.length,
+    schedules: visibleSchedules.length,
+    cancelRequests: visibleCancelRequests.filter((item) => !item.done).length,
     fraudChecks: fraudChecks.length,
-    notifications: currentUser?.role === 'Admin' && selectedLocationId === ALL_LOCATIONS_ID
-      ? notifications.filter((item) => !item.read).length
-      : notifications.filter((item) => !item.read && item.locationId === appLocationId).length,
+    notifications: visibleNotifications.filter((item) => !item.read).length,
   };
 
   return (
@@ -1032,12 +1095,18 @@ setCancelRequests(updatedCancelRequests);
         </>
       )}
 
-      {activeTab === 'Schedule' && (
+      {activeTab === 'Schedules' && (
         <div>
           <div className="section-card">
-            <h2>Schedule / Daily Chore Agenda</h2>
+            <div className="section-header">
+              <div>
+                <h2>Shift schedule</h2>
+                <p>Only shift work assignments are shown here. Crew members see their own shifts.</p>
+              </div>
+              <span className="badge pending">{visibleShiftSchedules.length} shift{visibleShiftSchedules.length === 1 ? '' : 's'}</span>
+            </div>
             {currentUser.role === 'Crew' ? (
-              <p>Crew members can only mark chores complete. Schedule creation is restricted to Managers and Admins.</p>
+              <p>Crew members can view their shifts and team assignments here. Schedule creation is restricted to Managers and Admins.</p>
             ) : (
               <div className="field-group">
                 <label>
@@ -1105,139 +1174,147 @@ setCancelRequests(updatedCancelRequests);
             )}
           </div>
 
-          <div className="section-card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h2>Notifications</h2>
-              {unreadNotifications.length > 0 && (
-                <button className="secondary small" onClick={markAllNotificationsRead}>
-                  Mark all read
-                </button>
-              )}
-            </div>
-            {unreadNotifications.length > 0 ? (
-              <ul className="notification-list">
-                {unreadNotifications.map((notification) => (
-                  <li key={notification.id}>
-                    <strong>{notification.type}</strong>: {notification.message}
-                    <div className="notification-time">{new Date(notification.timestamp).toLocaleString()}</div>
-                  </li>
-                ))}
-              </ul>
+          <div className="card-grid">
+            {visibleShiftSchedules.length > 0 ? (
+              visibleShiftSchedules.map((shift) => {
+                const coworkers = getShiftTeam(shift);
+                return (
+                  <div key={shift.id} className={`schedule-card ${shift.assignedTo === currentUser.username ? 'mine' : ''}`}>
+                    <div className="schedule-card-header">
+                      <div>
+                        <h3>{shift.title}</h3>
+                        <div className="badge-row">
+                          <span className="badge shift">Shift</span>
+                          {shift.done ? (
+                            <span className="badge done">Completed</span>
+                          ) : (
+                            <span className="badge pending">Pending</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="schedule-meta">
+                        {shift.date}
+                        <span>{shift.startTime || '—'}{shift.endTime ? ` – ${shift.endTime}` : ''}</span>
+                      </div>
+                    </div>
+                    <div className="schedule-card-body">
+                      <p>
+                        <strong>Assigned to</strong> {shift.assignedTo || 'Unassigned'}
+                      </p>
+                      {coworkers.length > 0 && (
+                        <p>
+                          <strong>Working with</strong> {coworkers.join(', ')}
+                        </p>
+                      )}
+                      {shift.assignedTo === currentUser.username && (
+                        <p className="badge my-task">My Shift</p>
+                      )}
+                    </div>
+                    <div className="schedule-card-actions">
+                      {shift.done ? (
+                        <button className="secondary small" disabled>
+                          Completed
+                        </button>
+                      ) : currentUser.role === 'Crew' ? (
+                        <button className="secondary small" disabled>
+                          Pending
+                        </button>
+                      ) : (
+                        <button
+                          className="small"
+                          onClick={() =>
+                            toggleDone(
+                              'schedules',
+                              shift.id,
+                              shift.done,
+                              'Shift assignment',
+                              `${shift.title} for ${shift.assignedTo}`,
+                            )
+                          }
+                        >
+                          Mark done
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
             ) : (
-              <p>No new notifications for this location.</p>
+              <div className="alert">No shift assignments match this view.</div>
             )}
           </div>
+        </div>
+      )}
 
-          <div className="table-card">
-            <h2>Shift assignments</h2>
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Time</th>
-                  <th>Title</th>
-                  <th>Assigned</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {shiftSchedules.map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.date}</td>
-                    <td>{item.startTime || '—'} {item.endTime ? `– ${item.endTime}` : ''}</td>
-                    <td>{item.title}</td>
-                    <td>{item.assignedTo || '—'}</td>
-                    <td>
-                      {item.done ? (
-                        'Done'
-                      ) : currentUser.role === 'Crew' ? (
-                        'Manager/Admin only'
-                      ) : (
-                        <button
-                          className="small"
-                          onClick={() =>
-                            toggleDone(
-                              'schedules',
-                              item.id,
-                              item.done,
-                              'Shift assignment',
-                              `${item.title} for ${item.assignedTo}`,
-                            )
-                          }
-                        >
-                          Mark done
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {shiftSchedules.length === 0 && (
-                  <tr>
-                    <td colSpan={5}>No shift assignments for this location yet.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+      {activeTab === 'Chores' && (
+        <div>
+          <div className="section-card">
+            <div className="section-header">
+              <div>
+                <h2>Chore assignments</h2>
+                <p>Daily and extra tasks appear here. Crew members see only their own assigned chores.</p>
+              </div>
+              <span className="badge pending">{visibleChoreSchedules.length} chore{visibleChoreSchedules.length === 1 ? '' : 's'}</span>
+            </div>
           </div>
 
-          <div className="table-card">
-            <h2>Chores</h2>
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Time</th>
-                  <th>Title</th>
-                  <th>Type</th>
-                  <th>Assigned</th>
-                  <th>Completed by</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {choreSchedules.map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.date}</td>
-                    <td>{item.startTime || '—'} {item.endTime ? `– ${item.endTime}` : ''}</td>
-                    <td>{item.title}</td>
-                    <td>{item.type}</td>
-                    <td>{item.assignedTo || '—'}</td>
-                    <td>
-                      {item.completedBy ? (
-                        <span className="badge done">Completed by {item.completedBy}</span>
-                      ) : (
-                        <span className="badge pending">Open</span>
-                      )}
-                    </td>
-                    <td>
-                      {!item.done ? (
-                        <button
-                          className="small"
-                          onClick={() =>
-                            toggleDone(
-                              'schedules',
-                              item.id,
-                              item.done,
-                              'Chore item',
-                              `${item.title} for ${item.assignedTo}`,
-                            )
-                          }
-                        >
-                          Mark done
-                        </button>
-                      ) : (
-                        'Done'
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {choreSchedules.length === 0 && (
-                  <tr>
-                    <td colSpan={7}>No chores scheduled for this location yet.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+          <div className="card-grid">
+            {visibleChoreSchedules.length > 0 ? (
+              visibleChoreSchedules.map((task) => (
+                <div key={task.id} className={`schedule-card ${task.assignedTo === currentUser.username ? 'mine' : ''}`}>
+                  <div className="schedule-card-header">
+                    <div>
+                      <h3>{task.title}</h3>
+                      <div className="badge-row">
+                        <span className={`badge ${task.type === 'Daily Chore' ? 'daily' : 'extra'}`}>
+                          {task.type === 'Daily Chore' ? 'Daily' : 'Extra'}
+                        </span>
+                        {task.done ? (
+                          <span className="badge done">Completed</span>
+                        ) : (
+                          <span className="badge pending">Pending</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="schedule-meta">{task.date}</div>
+                  </div>
+
+                  <div className="schedule-card-body">
+                    <p>
+                      <strong>Assigned to</strong> {task.assignedTo || 'Unassigned'}
+                    </p>
+                    {task.assignedTo === currentUser.username && (
+                      <p className="badge my-task">My Task</p>
+                    )}
+                  </div>
+
+                  <div className="schedule-card-actions">
+                    {!task.done ? (
+                      <button
+                        className="small"
+                        onClick={() =>
+                          toggleDone(
+                            'schedules',
+                            task.id,
+                            task.done,
+                            'Chore item',
+                            `${task.title} for ${task.assignedTo}`,
+                          )
+                        }
+                      >
+                        Mark done
+                      </button>
+                    ) : (
+                      <button className="secondary small" disabled>
+                        Completed
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="alert">No chores are scheduled for this view.</div>
+            )}
           </div>
         </div>
       )}
@@ -1258,8 +1335,18 @@ setCancelRequests(updatedCancelRequests);
                 Quantity
                 <input
                   type="number"
+                  min={0}
                   value={newInventory.quantity}
                   onChange={(event) => setNewInventory({ ...newInventory, quantity: Number(event.target.value) })}
+                />
+              </label>
+              <label>
+                Low inventory threshold
+                <input
+                  type="number"
+                  min={0}
+                  value={newInventory.lowInventoryThreshold}
+                  onChange={(event) => setNewInventory({ ...newInventory, lowInventoryThreshold: Number(event.target.value) })}
                 />
               </label>
               <label>
@@ -1282,15 +1369,17 @@ setCancelRequests(updatedCancelRequests);
                 <tr>
                   <th>Item</th>
                   <th>Quantity</th>
+                  <th>Threshold</th>
                   <th>Notes</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {inventory.map((item) => (
+                {visibleInventory.map((item) => (
                   <tr key={item.id}>
                     <td>{item.name}</td>
                     <td>{item.quantity}</td>
+                    <td>{item.lowInventoryThreshold}</td>
                     <td>{item.notes}</td>
                     <td>
                       <button className="small" onClick={() => handleAdjustInventory(item.id, -1)}>-</button>
@@ -1300,9 +1389,9 @@ setCancelRequests(updatedCancelRequests);
                     </td>
                   </tr>
                 ))}
-                {inventory.length === 0 && (
+                {visibleInventory.length === 0 && (
                   <tr>
-                    <td colSpan={4}>No inventory items recorded yet.</td>
+                    <td colSpan={5}>No inventory items recorded yet.</td>
                   </tr>
                 )}
               </tbody>
@@ -1355,7 +1444,7 @@ setCancelRequests(updatedCancelRequests);
                 </tr>
               </thead>
               <tbody>
-                {cancelRequests.map((item) => (
+                {visibleCancelRequests.map((item) => (
                   <tr key={item.id}>
                     <td>{item.customerName}</td>
                     <td>{item.licensePlate}</td>
@@ -1378,7 +1467,7 @@ setCancelRequests(updatedCancelRequests);
                     </td>
                   </tr>
                 ))}
-                {cancelRequests.length === 0 && (
+                {visibleCancelRequests.length === 0 && (
                   <tr>
                     <td colSpan={4}>No cancel requests at this location.</td>
                   </tr>
@@ -1500,14 +1589,14 @@ setCancelRequests(updatedCancelRequests);
               </tr>
             </thead>
             <tbody>
-              {history.map((entry) => (
+              {visibleHistory.map((entry) => (
                 <tr key={entry.id}>
                   <td>{entry.label}</td>
                   <td>{entry.details}</td>
                   <td>{new Date(entry.timestamp).toLocaleString()}</td>
                 </tr>
               ))}
-              {history.length === 0 && (
+              {visibleHistory.length === 0 && (
                 <tr>
                   <td colSpan={3}>No history entries available.</td>
                 </tr>
@@ -1668,7 +1757,7 @@ setLocationThresholdEdits((prev) => {
                 </tr>
               </thead>
               <tbody>
-                {users.map((user) => (
+                {visibleUsers.map((user) => (
                   <tr key={user.id}>
                     <td>{user.username}</td>
                     <td>{user.role}</td>
@@ -1684,7 +1773,7 @@ setLocationThresholdEdits((prev) => {
                     </td>
                   </tr>
                 ))}
-                {users.length === 0 && (
+                {visibleUsers.length === 0 && (
                   <tr>
                     <td colSpan={5}>No users set up yet.</td>
                   </tr>

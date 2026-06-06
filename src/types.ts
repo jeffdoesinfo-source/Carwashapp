@@ -2,9 +2,9 @@ export type Role = 'Admin' | 'Manager' | 'Crew';
 export type Permission = 'Dashboard' | 'Schedule' | 'Inventory' | 'Cancel' | 'Fraud' | 'History' | 'Admin';
 
 export interface User {
-  id: string;
+  id: string; // Firebase Auth UID
   username: string;
-  password: string;
+  password?: string;
   role: Role;
   locationId: string;
   permissions?: Permission[];
@@ -20,6 +20,7 @@ export interface InventoryItem {
   id: string;
   name: string;
   quantity: number;
+  lowInventoryThreshold: number;
   notes: string;
   locationId: string;
 }
@@ -61,7 +62,8 @@ export interface FraudCheck {
   id: string;
   customerName: string;
   licensePlate: string;
-  location: string;
+  location?: string;
+  locationId?: string;
   note: string;
   membership?: string;
   active?: boolean;
@@ -78,7 +80,7 @@ export interface HistoryEntry {
 }
 
 export interface AppData {
-  users: User[];
+  users: Record<string, User>;
   locations: LocationItem[];
   inventory: InventoryItem[];
   schedules: ScheduleItem[];
