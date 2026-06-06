@@ -133,6 +133,7 @@ function App() {
   const [actionMessage, setActionMessage] = useState('');
   const [usersLoaded, setUsersLoaded] = useState(false);
   const [locationsLoaded, setLocationsLoaded] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [defaultAdminSeeded, setDefaultAdminSeeded] = useState(false);
 
   const appLocationId = useMemo(() => {
@@ -1015,9 +1016,24 @@ setLocations(updatedLocations);
 
   return (
     <div className="app-shell">
-      {/* Sidebar + main layout */}
+      {/* Mobile overlay */}
+      <div 
+        className={`mobile-overlay ${isMobileMenuOpen ? 'open' : ''}`}
+        onClick={() => setIsMobileMenuOpen(false)}
+        style={{display:'none'}}
+      />
+      
+      {/* Mobile sidebar wrapper */}
+      <div 
+        className={`sidebar-wrapper ${isMobileMenuOpen ? 'open' : ''}`}
+        style={{display:'none'}}
+      >
+        <Sidebar tabs={availableTabs} activeTab={activeTab} onSelect={(t) => { setActiveTab(t as any); setIsMobileMenuOpen(false); }} />
+      </div>
+      
+      {/* Desktop sidebar + main layout */}
       <div style={{display:'flex',width:'100%'}}>
-        <aside style={{width:220}}>
+        <aside style={{width:220,display:'none'}}>
           <Sidebar tabs={availableTabs} activeTab={activeTab} onSelect={(t) => setActiveTab(t as any)} />
         </aside>
         <main style={{flex:1}}>
@@ -1029,6 +1045,8 @@ setLocations(updatedLocations);
             selectedLocationId={selectedLocationId}
             onLocationChange={(id: string) => setSelectedLocationId(id)}
             onSignOut={signOut}
+            onMenuToggle={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            isMobileMenuOpen={isMobileMenuOpen}
           />
           <div className="header">
             <div>

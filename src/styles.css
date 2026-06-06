@@ -98,6 +98,86 @@ th,td{padding:10px 8px;border-bottom:1px solid rgba(255,255,255,0.03);color:var(
   flex-wrap: wrap;
 }
 
+/* Mobile responsive layout */
+@media (max-width: 768px) {
+  .app-shell {
+    flex-direction: column;
+  }
+  
+  .app-shell .sidebar-wrapper {
+    display: none !important;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100vh;
+    background: var(--surface);
+    z-index: 1000;
+    padding-top: 60px;
+    overflow-y: auto;
+  }
+  
+  .app-shell .sidebar-wrapper.open {
+    display: block !important;
+  }
+  
+  .app-shell .mobile-overlay {
+    display: none !important;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 999;
+  }
+  
+  .app-shell .mobile-overlay.open {
+    display: block !important;
+  }
+  
+  .hamburger {
+    display: flex !important;
+    font-size: 24px;
+    background: transparent !important;
+    border: none !important;
+    color: var(--text);
+    cursor: pointer;
+    padding: 8px 12px !important;
+  }
+  
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--surface);
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+  }
+  
+  .user-chip {
+    display: none !important;
+  }
+  
+  main {
+    padding-bottom: 20px;
+  }
+}
+
+@media (min-width: 769px) {
+  .hamburger {
+    display: none !important;
+  }
+  
+  .sidebar-wrapper,
+  .mobile-overlay {
+    display: none !important;
+  }
+  
+  aside[style*="width:220"] {
+    display: block !important;
+  }
+}
+
 .schedule-meta {
   display: grid;
   gap: 6px;
