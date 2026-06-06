@@ -14,7 +14,7 @@ function Root() {
 
   useEffect(() => {
     let swRegistration: ServiceWorkerRegistration | undefined;
-    // registerSW returns an updater function, but we only need registration callbacks
+    // registerSW returns an updater function that checks for service worker updates.
     const updateFn = registerSW({
       onRegistered(reg: ServiceWorkerRegistration | undefined) {
         console.log('Service worker registered.', reg);
@@ -28,17 +28,19 @@ function Root() {
       },
       onNeedRefresh() {
         console.log('New content available, update ready.');
-        // store waiting worker if present on the registration
         const maybeWaiting = swRegistration?.waiting ?? null;
         setWaitingWorker(maybeWaiting);
         setUpdateAvailable(true);
       },
     });
 
-    // cleanup not strictly necessary
+    if (typeof updateFn === 'function') {
+      (window as any).__updateServiceWorker = updateFn;
+      void updateFn();
+    }
+
     return () => {
-      // noop
-      void updateFn;
+      // no cleanup needed for sw registration helper
     };
   }, []);
 
