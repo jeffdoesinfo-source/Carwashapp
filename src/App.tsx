@@ -321,7 +321,7 @@ function App() {
     if (!currentUser) return;
 
     const isAdmin = currentUser.role === 'Admin';
-    const locId = isAdmin && selectedLocationId === ALL_LOCATIONS_ID ? undefined : currentUser.locationId;
+    const locId = isAdmin && selectedLocationId === ALL_LOCATIONS_ID ? undefined : selectedLocationId || currentUser.locationId;
 
     (async () => {
       // Users: only admin may load full users collection
