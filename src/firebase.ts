@@ -1,4 +1,14 @@
-// Firebase config - kept for potential future use
+import { initializeApp } from 'firebase/app';
+import { 
+  getFirestore, 
+  enableIndexedDbPersistence 
+} from 'firebase/firestore';
+import { 
+  getAuth,
+  setPersistence,
+  browserLocalPersistence
+} from 'firebase/auth';
+
 const firebaseConfig = {
   apiKey: 'AIzaSyDzQN9xDrOxJynVWuy3pe03qr9-k8Xplvk',
   authDomain: 'qnc-app.firebaseapp.com',
@@ -9,17 +19,21 @@ const firebaseConfig = {
   measurementId: 'G-CKLWXQXMT8',
 };
 
-import { initializeApp } from 'firebase/app';
-import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
-
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
 
-// Enable offline persistence so the app works when offline
+export const db = getFirestore(app);
+export const auth = getAuth(app);
+
+// Keep users signed in across refreshes/devices
+setPersistence(auth, browserLocalPersistence);
+
 try {
   enableIndexedDbPersistence(db);
 } catch (err: any) {
-  if (err.code !== 'failed-precondition' && err.code !== 'unimplemented') {
+  if (
+    err.code !== 'failed-precondition' &&
+    err.code !== 'unimplemented'
+  ) {
     console.error('Failed to enable persistence:', err);
   }
 }

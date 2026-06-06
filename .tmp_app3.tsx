@@ -1,8 +1,4 @@
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "./firebase"; // adjust path if needed
-import { doc, getDoc } from "firebase/firestore";
-import { db } from "./firebase";
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import {
   loadLocalUsers,
   saveLocalUsers,
@@ -128,7 +124,7 @@ function App() {
   const [fraudSearch, setFraudSearch] = useState('');
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [loginEmail, setLoginEmail] = useState('');
+  const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
@@ -153,118 +149,114 @@ function App() {
     return users.filter((item) => item.locationId === appLocationId);
   }, [users, appLocationId, currentUser, selectedLocationId]);
 
-useEffect(() => {
-  const initializeApp = async () => {
-    const localUsers = await loadLocalUsersAsync();
-    const localLocations = loadLocations();
-    const localInventory = loadInventory();
-    const localSchedules = loadSchedules();
-    const localCancelRequests = loadCancelRequests();
-    const localFraudChecks = loadFraudChecks();
+  useEffect(() => {
+    const initializeApp = async () => {
+      const localUsers = await loadLocalUsersAsync();
+      const localLocations = loadLocations();
+      const localInventory = loadInventory();
+      const localSchedules = loadSchedules();
+      const localCancelRequests = loadCancelRequests();
+      const localFraudChecks = loadFraudChecks();
 
-    const initialLocations = localLocations.length > 0 ? localLocations : [localDefaultLocation];
+      const remoteUsers = await loadUsersFromFirebase();
+      const remoteLocations = await loadLocationsFromFirebase();
+      const remoteInventory = await loadInventoryFromFirebase();
+      const remoteSchedules = await loadSchedulesFromFirebase();
+      const remoteCancelRequests = await loadCancelRequestsFromFirebase();
+      const remoteFraudChecks = await loadFraudChecksFromFirebase();
 
-    setUsers(localUsers);
-    setLocations(initialLocations);
-    setInventory(localInventory);
-    setSchedules(localSchedules);
-    setCancelRequests(localCancelRequests);
-    setFraudChecks(localFraudChecks);
-    setHistory(loadHistory());
-    setNotifications(loadNotifications());
-    setUsersLoaded(true);
-    setLocationsLoaded(true);
+      const usersFromServer = remoteUsers ?? localUsers;
+      let effectiveUsers = usersFromServer;
+      if (!remoteUsers && effectiveUsers.length === 0) {
+        const locationId = localLocations[0]?.id || localDefaultLocation.id;
+        const seededUser: User = {
+          id: generateId(),
+          username: 'JeffArmstrong',
+          password: 'ArmstrongFam2024!',
+          role: 'Admin',
+          locationId,
+        };
+        effectiveUsers = [seededUser];
+        saveLocalUsers(effectiveUsers);
+        await saveLocalUsersAsync(effectiveUsers);
+        await syncUsersToFirebase(effectiveUsers);
+      } else if (remoteUsers) {
+        saveLocalUsers(effectiveUsers);
+        await saveLocalUsersAsync(effectiveUsers);
+      }
 
-    const remoteUsers = await loadUsersFromFirebase();
-    const remoteLocations = await loadLocationsFromFirebase();
-    const remoteInventory = await loadInventoryFromFirebase();
-    const remoteSchedules = await loadSchedulesFromFirebase();
-    const remoteCancelRequests = await loadCancelRequestsFromFirebase();
-    const remoteFraudChecks = await loadFraudChecksFromFirebase();
+      const effectiveLocations = remoteLocations ?? (localLocations.length > 0 ? localLocations : [localDefaultLocation]);
+      saveLocations(effectiveLocations);
+      if (!remoteLocations && localLocations.length > 0) {
+        await syncLocationsToFirebase(effectiveLocations);
+      }
+      if (remoteLocations && localLocations.length === 0) {
+        saveLocations(remoteLocations);
+      }
 
-    let effectiveUsers = remoteUsers ?? localUsers;
-    if (!remoteUsers && effectiveUsers.length === 0) {
-      const locationId = localLocations[0]?.id || localDefaultLocation.id;
-      const seededUser: User = {
-        id: generateId(),
-        username: 'JeffArmstrong',
-        password: 'ArmstrongFam2024!',
-        role: 'Admin',
-        locationId,
-      };
-      effectiveUsers = [seededUser];
-      saveLocalUsers(effectiveUsers);
-      await saveLocalUsersAsync(effectiveUsers);
-      await syncUsersToFirebase(effectiveUsers);
-    } else if (remoteUsers) {
-      saveLocalUsers(effectiveUsers);
-      await saveLocalUsersAsync(effectiveUsers);
+      const effectiveInventory = remoteInventory ?? localInventory;
+      saveInventory(effectiveInventory);
+      if (!remoteInventory && localInventory.length > 0) {
+        await syncInventoryToFirebase(effectiveInventory);
+      }
+
+      const effectiveSchedules = remoteSchedules ?? localSchedules;
+      saveSchedules(effectiveSchedules);
+      if (!remoteSchedules && localSchedules.length > 0) {
+        await syncSchedulesToFirebase(effectiveSchedules);
+      }
+
+      const effectiveCancelRequests = remoteCancelRequests ?? localCancelRequests;
+      saveCancelRequests(effectiveCancelRequests);
+      if (!remoteCancelRequests && localCancelRequests.length > 0) {
+        await syncCancelRequestsToFirebase(effectiveCancelRequests);
+      }
+
+      const effectiveFraudChecks = remoteFraudChecks ?? localFraudChecks;
+      saveFraudChecks(effectiveFraudChecks);
+      if (!remoteFraudChecks && localFraudChecks.length > 0) {
+        await syncFraudChecksToFirebase(effectiveFraudChecks);
+      }
+
+      setUsers(effectiveUsers);
+      setUsersLoaded(true);
+      setLocations(effectiveLocations);
+      setInventory(effectiveInventory);
+      setSchedules(effectiveSchedules);
+      setCancelRequests(effectiveCancelRequests);
+      setFraudChecks(effectiveFraudChecks);
+      setHistory(loadHistory());
+      setNotifications(loadNotifications());
+      setLocationsLoaded(true);
+
+      setUsersUpdateCallback(setUsers);
+      setLocationsUpdateCallback(setLocations);
+      setInventoryUpdateCallback(setInventory);
+      setSchedulesUpdateCallback(setSchedules);
+      setCancelRequestsUpdateCallback(setCancelRequests);
+      setFraudChecksUpdateCallback(setFraudChecks);
+
+      listenToUsersUpdates();
+      listenToLocationsUpdates();
+      listenToInventoryUpdates();
+      listenToSchedulesUpdates();
+      listenToCancelRequestsUpdates();
+      listenToFraudChecksUpdates();
+
+      setDefaultAdminSeeded(true);
+    };
+
+    if (!defaultAdminSeeded) {
+      void initializeApp();
     }
 
-    const effectiveLocations = remoteLocations ?? initialLocations;
-    saveLocations(effectiveLocations);
-    if (!remoteLocations && localLocations.length > 0) {
-      await syncLocationsToFirebase(effectiveLocations);
-    }
+    return () => {
+      if (defaultAdminSeeded) {
+        unsubscribeFromAllUpdates();
+      }
+    };
+  }, [defaultAdminSeeded]);
 
-    const effectiveInventory = remoteInventory ?? localInventory;
-    saveInventory(effectiveInventory);
-    if (!remoteInventory && localInventory.length > 0) {
-      await syncInventoryToFirebase(effectiveInventory);
-    }
-
-    const effectiveSchedules = remoteSchedules ?? localSchedules;
-    saveSchedules(effectiveSchedules);
-    if (!remoteSchedules && localSchedules.length > 0) {
-      await syncSchedulesToFirebase(effectiveSchedules);
-    }
-
-    const effectiveCancelRequests = remoteCancelRequests ?? localCancelRequests;
-    saveCancelRequests(effectiveCancelRequests);
-    if (!remoteCancelRequests && localCancelRequests.length > 0) {
-      await syncCancelRequestsToFirebase(effectiveCancelRequests);
-    }
-
-    const effectiveFraudChecks = remoteFraudChecks ?? localFraudChecks;
-    saveFraudChecks(effectiveFraudChecks);
-    if (!remoteFraudChecks && localFraudChecks.length > 0) {
-      await syncFraudChecksToFirebase(effectiveFraudChecks);
-    }
-
-    setUsers(effectiveUsers);
-    setLocations(effectiveLocations);
-    setInventory(effectiveInventory);
-    setSchedules(effectiveSchedules);
-    setCancelRequests(effectiveCancelRequests);
-    setFraudChecks(effectiveFraudChecks);
-
-    setUsersUpdateCallback(setUsers);
-    setLocationsUpdateCallback(setLocations);
-    setInventoryUpdateCallback(setInventory);
-    setSchedulesUpdateCallback(setSchedules);
-    setCancelRequestsUpdateCallback(setCancelRequests);
-    setFraudChecksUpdateCallback(setFraudChecks);
-
-    listenToUsersUpdates();
-    listenToLocationsUpdates();
-    listenToInventoryUpdates();
-    listenToSchedulesUpdates();
-    listenToCancelRequestsUpdates();
-    listenToFraudChecksUpdates();
-
-    setDefaultAdminSeeded(true);
-  };
-
-  if (!defaultAdminSeeded) {
-    void initializeApp();
-  }
-
-  return () => {
-    if (defaultAdminSeeded) {
-      unsubscribeFromAllUpdates();
-    }
-  };
-}, [defaultAdminSeeded]);
   useEffect(() => {
     if (!currentUser) return;
     if (currentUser.role === 'Admin') {
@@ -340,35 +332,24 @@ useEffect(() => {
     setLoginError('');
     setStatusMessage('Signing in...');
 
-    try {
-      const cred = await signInWithEmailAndPassword(
-        auth,
-        loginEmail.trim(),
-        loginPassword,
-      );
+    const matchedUser = users.find(
+      (user) => user.username === loginUsername.trim() && user.password === loginPassword,
+    );
 
-      const uid = cred.user.uid;
-      const snap = await getDoc(doc(db, 'users', uid));
-
-      if (!snap.exists()) {
-        setLoginError('User profile missing in database');
-        setStatusMessage('');
-        return;
-      }
-
-      const userData = snap.data() as User;
-      setCurrentUser(userData);
+    if (!matchedUser) {
+      setLoginError('Invalid username or password');
       setStatusMessage('');
-      setActiveTab('Dashboard');
-    } catch (err) {
-      setLoginError('Invalid email or password');
-      setStatusMessage('');
+      return;
     }
+
+    setCurrentUser(matchedUser);
+    setStatusMessage('');
+    setActiveTab('Dashboard');
   };
 
   const signOut = () => {
     setCurrentUser(null);
-    setLoginEmail('');
+    setLoginUsername('');
     setLoginPassword('');
     setLoginError('');
     setActiveTab('Dashboard');
@@ -449,7 +430,7 @@ useEffect(() => {
     return { scheduleByLocation, lowInventoryAlerts };
   }, [currentUser, inventory, schedules, locations]);
 
-  const finalizeFraudCheck = async (itemId: string) => {
+  const finalizeFraudCheck = (itemId: string) => {
     if (!currentUser) return;
     const currentFraudChecks = loadFraudChecks();
     const target = currentFraudChecks.find((item) => item.id === itemId);
@@ -469,10 +450,9 @@ useEffect(() => {
         : item,
     );
 
-   await syncFraudChecksToFirebase(updatedFraudChecks);
-
-saveFraudChecks(updatedFraudChecks);
-setFraudChecks(updatedFraudChecks);
+    saveFraudChecks(updatedFraudChecks);
+    setFraudChecks(updatedFraudChecks);
+    void syncFraudChecksToFirebase(updatedFraudChecks);
 
     const fraudLocationId = appLocationId || target.location;
     createHistoryEntry(
@@ -499,12 +479,10 @@ setFraudChecks(updatedFraudChecks);
     };
 
     const currentSchedules = loadSchedules();
-const updatedSchedules = [...currentSchedules, newItem];
-
-await syncSchedulesToFirebase(updatedSchedules);
-
-saveSchedules(updatedSchedules);
-setSchedules(updatedSchedules);
+    const updatedSchedules = [...currentSchedules, newItem];
+    saveSchedules(updatedSchedules);
+    setSchedules(updatedSchedules);
+    void syncSchedulesToFirebase(updatedSchedules);
 
     createHistoryEntry(
       'Schedule added',
@@ -532,50 +510,28 @@ setSchedules(updatedSchedules);
       locationId: appLocationId,
     };
 
-   const currentInventory = loadInventory();
-const updatedInventory = [...currentInventory, newItem];
-
-await syncInventoryToFirebase(updatedInventory);
-
-saveInventory(updatedInventory);
-setInventory(updatedInventory);
+    const currentInventory = loadInventory();
+    const updatedInventory = [...currentInventory, newItem];
+    saveInventory(updatedInventory);
+    setInventory(updatedInventory);
+    void syncInventoryToFirebase(updatedInventory);
 
     createHistoryEntry('Inventory added', `${newInventory.name} x${newInventory.quantity}`, appLocationId);
     setNewInventory({ name: '', quantity: 0, notes: '' });
   };
 
- const handleDeleteInventory = async (itemId: string) => {
-  if (!currentUser || currentUser.role !== 'Admin') return;
+  const handleDeleteInventory = async (itemId: string) => {
+    if (!currentUser || currentUser.role !== 'Admin') return;
+    const itemToDelete = inventory.find((item) => item.id === itemId);
+    if (!itemToDelete) return;
+    if (!window.confirm(`Delete inventory item ${itemToDelete.name}?`)) return;
 
-  const itemToDelete = inventory.find(
-    (item) => item.id === itemId
-  );
-
-  if (!itemToDelete) return;
-
-  if (!window.confirm(`Delete inventory item ${itemToDelete.name}?`)) {
-    return;
-  }
-
-  const updatedInventory = inventory.filter(
-    (item) => item.id !== itemId
-  );
-
-  try {
-    await syncInventoryToFirebase(updatedInventory);
-
+    const updatedInventory = inventory.filter((item) => item.id !== itemId);
     setInventory(updatedInventory);
     saveInventory(updatedInventory);
-
-    createHistoryEntry(
-      'Inventory removed',
-      `${itemToDelete.name} removed from inventory`,
-      itemToDelete.locationId
-    );
-  } catch (err) {
-    console.error('Delete sync failed:', err);
-  }
-};
+    void syncInventoryToFirebase(updatedInventory);
+    createHistoryEntry('Inventory removed', `${itemToDelete.name} removed from inventory`, itemToDelete.locationId);
+  };
 
   const handleAdjustInventory = async (itemId: string, delta: number) => {
     if (!currentUser || !appLocationId) return;
@@ -585,17 +541,9 @@ setInventory(updatedInventory);
         ? { ...item, quantity: Math.max(0, item.quantity + delta) }
         : item,
     );
-   await syncInventoryToFirebase(updatedInventory);
-
-saveInventory(updatedInventory);
-
-setInventory(
-  updatedInventory.filter(
-    (item) =>
-      currentUser.role === 'Admin' ||
-      item.locationId === appLocationId
-  )
-);
+    saveInventory(updatedInventory);
+    void syncInventoryToFirebase(updatedInventory);
+    setInventory(updatedInventory.filter((item) => currentUser.role === 'Admin' || item.locationId === appLocationId));
 
     const changedItem = updatedInventory.find((item) => item.id === itemId);
     if (changedItem) {
@@ -621,17 +569,10 @@ setInventory(
     const updatedInventory = currentInventory.map((item) =>
       item.id === itemId ? { ...item, quantity } : item,
     );
-    await syncInventoryToFirebase(updatedInventory);
+    saveInventory(updatedInventory);
+    void syncInventoryToFirebase(updatedInventory);
+    setInventory(updatedInventory.filter((item) => currentUser.role === 'Admin' || item.locationId === appLocationId));
 
-saveInventory(updatedInventory);
-
-setInventory(
-  updatedInventory.filter(
-    (item) =>
-      currentUser.role === 'Admin' ||
-      item.locationId === appLocationId
-  )
-);
     createHistoryEntry(
       'Inventory quantity set',
       `${target.name} quantity changed to ${quantity}`,
@@ -650,13 +591,11 @@ setInventory(
       locationId: appLocationId,
     };
 
-   const currentCancelRequests = loadCancelRequests();
-const updatedCancelRequests = [...currentCancelRequests, newItem];
-
-await syncCancelRequestsToFirebase(updatedCancelRequests);
-
-saveCancelRequests(updatedCancelRequests);
-setCancelRequests(updatedCancelRequests);
+    const currentCancelRequests = loadCancelRequests();
+    const updatedCancelRequests = [...currentCancelRequests, newItem];
+    saveCancelRequests(updatedCancelRequests);
+    setCancelRequests(updatedCancelRequests);
+    void syncCancelRequestsToFirebase(updatedCancelRequests);
 
     createHistoryEntry('Cancel request added', `${newCancel.customerName} / ${newCancel.licensePlate}`, appLocationId);
     setNewCancel({ customerName: '', licensePlate: '', reason: '' });
@@ -672,13 +611,11 @@ setCancelRequests(updatedCancelRequests);
       createdAt: new Date().toISOString(),
     };
 
-   const currentFraudChecks = loadFraudChecks();
-const updatedFraudChecks = [...currentFraudChecks, newItem];
-
-await syncFraudChecksToFirebase(updatedFraudChecks);
-
-saveFraudChecks(updatedFraudChecks);
-setFraudChecks(updatedFraudChecks);
+    const currentFraudChecks = loadFraudChecks();
+    const updatedFraudChecks = [...currentFraudChecks, newItem];
+    saveFraudChecks(updatedFraudChecks);
+    setFraudChecks(updatedFraudChecks);
+    void syncFraudChecksToFirebase(updatedFraudChecks);
 
     const fraudLocationId = appLocationId || currentUser.locationId;
     createHistoryEntry('Fraud plate check added', `${newFraud.customerName} / ${newFraud.licensePlate}`, fraudLocationId);
@@ -747,23 +684,12 @@ setFraudChecks(updatedFraudChecks);
     if (!userToDelete) return;
     if (!window.confirm(`Delete user ${userToDelete.username}? This action cannot be undone.`)) return;
 
-   const updatedUsers = users.filter((user) => user.id !== userId);
-
-    try {
-      await syncUsersToFirebase(updatedUsers);
-
-      setUsers(updatedUsers);
-      saveLocalUsers(updatedUsers);
-      await saveLocalUsersAsync(updatedUsers);
-
-      createHistoryEntry(
-        'User deleted',
-        `${userToDelete.username} removed`,
-        userToDelete.locationId,
-      );
-    } catch (err) {
-      console.error('Failed to delete user in Firebase:', err);
-    }
+    const updatedUsers = users.filter((user) => user.id !== userId);
+    setUsers(updatedUsers);
+    saveLocalUsers(updatedUsers);
+    await saveLocalUsersAsync(updatedUsers);
+    void syncUsersToFirebase(updatedUsers);
+    createHistoryEntry('User deleted', `${userToDelete.username} removed`, userToDelete.locationId);
   };
 
   const handleEditUser = (user: User) => {
@@ -793,13 +719,12 @@ setFraudChecks(updatedFraudChecks);
       lowInventoryThreshold: newLocationThreshold,
     };
 
- const currentLocations = loadLocations();
-const updatedLocations = [...currentLocations, newLocation];
+    const currentLocations = loadLocations();
+    const updatedLocations = [...currentLocations, newLocation];
+    saveLocations(updatedLocations);
+    setLocations(updatedLocations);
+    void syncLocationsToFirebase(updatedLocations);
 
-await syncLocationsToFirebase(updatedLocations);
-
-saveLocations(updatedLocations);
-setLocations(updatedLocations);
     createHistoryEntry('Location added', newLocationName, newLocation.id);
     setNewLocationName('');
     setNewLocationThreshold(5);
@@ -822,19 +747,17 @@ setLocations(updatedLocations);
             }
           : item,
       );
-      await syncSchedulesToFirebase(updatedSchedules);
-
-saveSchedules(updatedSchedules);
-setSchedules(updatedSchedules);
+      saveSchedules(updatedSchedules);
+      setSchedules(updatedSchedules);
+      void syncSchedulesToFirebase(updatedSchedules);
     } else if (collectionName === 'cancelRequests') {
       const currentCancelRequests = loadCancelRequests();
       const updatedCancelRequests = currentCancelRequests.map(item =>
         item.id === itemId ? { ...item, done: !currentValue } : item
       );
-     await syncCancelRequestsToFirebase(updatedCancelRequests);
-
-saveCancelRequests(updatedCancelRequests);
-setCancelRequests(updatedCancelRequests);
+      saveCancelRequests(updatedCancelRequests);
+      setCancelRequests(updatedCancelRequests);
+      void syncCancelRequestsToFirebase(updatedCancelRequests);
     }
 
     createHistoryEntry(`${label} updated`, details, appLocationId);
@@ -865,8 +788,8 @@ setCancelRequests(updatedCancelRequests);
         <div className="form-card">
           <div className="field-group">
             <label>
-              Email
-              <input value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} />
+              Username
+              <input value={loginUsername} onChange={(event) => setLoginUsername(event.target.value)} />
             </label>
             <label>
               Password
@@ -1011,7 +934,7 @@ setCancelRequests(updatedCancelRequests);
                         {group.shifts.map((shift) => (
                           <tr key={shift.id}>
                             <td>{shift.date}</td>
-                            <td>{shift.startTime || '—'}{shift.endTime ? `– ${shift.endTime}` : ''}</td>
+                            <td>{shift.startTime || 'ΓÇö'}{shift.endTime ? `ΓÇô ${shift.endTime}` : ''}</td>
                             <td>{shift.title}</td>
                             <td>{shift.assignedTo || 'Unassigned'}</td>
                           </tr>
@@ -1144,9 +1067,9 @@ setCancelRequests(updatedCancelRequests);
                 {shiftSchedules.map((item) => (
                   <tr key={item.id}>
                     <td>{item.date}</td>
-                    <td>{item.startTime || '—'} {item.endTime ? `– ${item.endTime}` : ''}</td>
+                    <td>{item.startTime || 'ΓÇö'} {item.endTime ? `ΓÇô ${item.endTime}` : ''}</td>
                     <td>{item.title}</td>
-                    <td>{item.assignedTo || '—'}</td>
+                    <td>{item.assignedTo || 'ΓÇö'}</td>
                     <td>
                       {item.done ? (
                         'Done'
@@ -1198,10 +1121,10 @@ setCancelRequests(updatedCancelRequests);
                 {choreSchedules.map((item) => (
                   <tr key={item.id}>
                     <td>{item.date}</td>
-                    <td>{item.startTime || '—'} {item.endTime ? `– ${item.endTime}` : ''}</td>
+                    <td>{item.startTime || 'ΓÇö'} {item.endTime ? `ΓÇô ${item.endTime}` : ''}</td>
                     <td>{item.title}</td>
                     <td>{item.type}</td>
-                    <td>{item.assignedTo || '—'}</td>
+                    <td>{item.assignedTo || 'ΓÇö'}</td>
                     <td>
                       {item.completedBy ? (
                         <span className="badge done">Completed by {item.completedBy}</span>
@@ -1463,7 +1386,7 @@ setCancelRequests(updatedCancelRequests);
                     <td>{item.customerName}</td>
                     <td>{item.licensePlate}</td>
                     <td>{item.location}</td>
-                    <td>{item.membership || '—'}</td>
+                    <td>{item.membership || 'ΓÇö'}</td>
                     <td>{item.done ? (item.active ? 'Active' : 'Not Active') : 'Open'}</td>
                     <td>{item.note}</td>
                     <td>
@@ -1631,16 +1554,14 @@ setCancelRequests(updatedCancelRequests);
                       const updatedLocations = locations.map((loc) =>
                         loc.id === location.id ? { ...loc, lowInventoryThreshold: threshold } : loc,
                       );
-                     await syncLocationsToFirebase(updatedLocations);
-
-saveLocations(updatedLocations);
-setLocations(updatedLocations);
-
-setLocationThresholdEdits((prev) => {
-  const next = { ...prev };
-  delete next[location.id];
-  return next;
-});
+                      saveLocations(updatedLocations);
+                      setLocations(updatedLocations);
+                      void syncLocationsToFirebase(updatedLocations);
+                      setLocationThresholdEdits((prev) => {
+                        const next = { ...prev };
+                        delete next[location.id];
+                        return next;
+                      });
                       createHistoryEntry(
                         'Location threshold updated',
                         `${location.name} low inventory threshold set to ${threshold}`,

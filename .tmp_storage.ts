@@ -1,17 +1,4 @@
 ﻿import type { AppData, User, LocationItem, InventoryItem, ScheduleItem, CancelRequest, FraudCheck, HistoryEntry, NotificationItem } from '../types';
-import { db } from '../firebase';
-import {
-  collection,
-  doc,
-  getDocs,
-  onSnapshot,
-  writeBatch,
-  deleteDoc,
-  setDoc,
-  DocumentData,
-  QuerySnapshot,
-  Unsubscribe,
-} from 'firebase/firestore';
 
 const STORAGE_KEY = 'carwashStaffManagementData';
 const USER_KEY = 'carwashStaffManagementUsers';
@@ -228,13 +215,15 @@ export function saveNotifications(notifications: NotificationItem[]) {
 }
 
 // Firestore sync functions
-
-const COLLECTION_USERS = 'users';
-const COLLECTION_LOCATIONS = 'locations';
-const COLLECTION_INVENTORY = 'inventory';
-const COLLECTION_SCHEDULES = 'schedules';
-const COLLECTION_CANCEL_REQUESTS = 'cancel_requests';
-const COLLECTION_FRAUD_CHECKS = 'fraud_checks';
+import { db } from '../firebase';
+import {
+  doc,
+  getDoc,
+  setDoc,
+  onSnapshot,
+  Unsubscribe,
+  writeBatch,
+} from 'firebase/firestore';
 
 let unsubscribeUsers: Unsubscribe | null = null;
 let unsubscribeInventory: Unsubscribe | null = null;
@@ -275,117 +264,192 @@ export function setLocationsUpdateCallback(callback: (locations: LocationItem[])
   locationsUpdateCallback = callback;
 }
 
-function snapshotToArray<T>(snapshot: QuerySnapshot<DocumentData>): T[] {
-  return snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as object) } as T));
+// Sync users to Firestore
+import { collection, writeBatch, doc } from "firebase/firestore";
+
+import { writeBatch, doc } from "firebase/firestore";
+
+export async function syncUsersToFirebase(users: User[]) {
+  if (typeof window === "undefined") return;
+
+  try {
+    if (!Array.isArray(users) || users.length === 0) return;
+
+    const batch = writeBatch(db);
+
+    users.forEach((user) => {
+      if (!user?.id) return;
+
+      const ref = doc(db, "users", user.id);
+
+      batch.set(
+        ref,
+        {
+          id: user.id,
+          username: user.username,
+          role: user.role,
+          locationId: user.locationId,
+          permissions: user.permissions ?? [],
+          lastUpdated: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    });
+
+    await batch.commit();
+  } catch (err) {
+    console.error("Failed to sync users to Firebase:", err);
+  }
+}
+if (!users?.length) return;
+// Listen for users updates from Firestore
+export async function syncToFirebase<T>(
+  docName: string,
+  data: T[]
+) {
+  if (typeof window === 'undefined') return;
+
+  try {
+    // Γ¥î block dangerous wipes
+    if (!Array.isArray(data) || data.length === 0) {
+      console.warn(`Blocked empty sync for ${docName}`);
+      return;
+    }
+
+    const ref = doc(db, 'app', docName);
+
+    await setDoc(
+      ref,
+      {
+        data,
+        lastUpdated: new Date().toISOString(),
+      },
+      { merge: true } // ≡ƒöÑ prevents full overwrite issues
+    );
+
+  } catch (err) {
+    console.error(`Failed to sync ${docName} to Firebase:`, err);
+  }
 }
 
-async function loadCollectionFromFirebase<T>(collectionName: string): Promise<T[] | null> {
+import { collection, getDocs } from "firebase/firestore";
+
+async function loadFirestoreData<T>(collectionName: string): Promise<T[] | null> {
   if (typeof window === 'undefined') return null;
+
   try {
-    const collectionRef = collection(db, collectionName);
-    const snapshot = await getDocs(collectionRef);
-    return snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as object) } as T));
+    const snapshot = await getDocs(collection(db, collectionName));
+
+    const data = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+    })) as T[];
+
+    return data;
   } catch (err) {
     console.error(`Failed to load ${collectionName} from Firebase:`, err);
     return null;
   }
 }
-
-async function syncCollectionToFirebase<T extends { id: string }>(collectionName: string, items: T[]): Promise<void> {
-  if (typeof window === 'undefined') return;
-  if (!Array.isArray(items)) return;
-  if (items.length === 0) {
-    console.warn(`Skipping ${collectionName} sync because payload is empty; this prevents accidental collection wipes.`);
-    return;
-  }
-
-  try {
-    const collectionRef = collection(db, collectionName);
-    const batch = writeBatch(db);
-    const existingSnapshot = await getDocs(collectionRef);
-    const incomingIds = new Set<string>();
-
-    for (const item of items) {
-      if (!item?.id) {
-        console.warn(`Skipping ${collectionName} item without id`, item);
-        continue;
-      }
-      incomingIds.add(item.id);
-      const docRef = doc(collectionRef, item.id);
-      batch.set(docRef, item as DocumentData, { merge: true });
-    }
-
-    for (const existingDoc of existingSnapshot.docs) {
-      if (!incomingIds.has(existingDoc.id)) {
-        batch.delete(doc(collectionRef, existingDoc.id));
-      }
-    }
-
-    await batch.commit();
-  } catch (err) {
-    console.error(`Failed to sync ${collectionName} to Firebase:`, err);
-  }
 }
 
-// Sync users to Firestore
-export async function syncUsersToFirebase(users: User[]) {
-  await syncCollectionToFirebase<User>(COLLECTION_USERS, users);
-}
-
-// Listen for users updates from Firestore
-export function listenToUsersUpdates() {
-  if (typeof window === 'undefined') return;
-  try {
-    unsubscribeUsers = onSnapshot(collection(db, COLLECTION_USERS), async (snapshot) => {
-      const users = snapshotToArray<User>(snapshot);
-      saveLocalUsers(users);
-      await saveLocalUsersAsync(users);
-      if (usersUpdateCallback) usersUpdateCallback(users);
-    });
-  } catch (err) {
-    console.error('Failed to listen to users updates:', err);
-  }
-}
-
-export async function loadUsersFromFirebase(): Promise<User[] | null> {
-  return loadCollectionFromFirebase<User>(COLLECTION_USERS);
+export async function loadUsersFromFirebase(): Promise<User[]> {
+  const snap = await getDocs(collection(db, "users"));
+  return snap.docs.map(d => d.data() as User);
 }
 
 export async function loadLocationsFromFirebase(): Promise<LocationItem[] | null> {
-  return loadCollectionFromFirebase<LocationItem>(COLLECTION_LOCATIONS);
+  return loadFirestoreData<LocationItem>('locations_data');
 }
 
 export async function loadInventoryFromFirebase(): Promise<InventoryItem[] | null> {
-  return loadCollectionFromFirebase<InventoryItem>(COLLECTION_INVENTORY);
+  return loadFirestoreData<InventoryItem>('inventory_data');
 }
 
 export async function loadSchedulesFromFirebase(): Promise<ScheduleItem[] | null> {
-  return loadCollectionFromFirebase<ScheduleItem>(COLLECTION_SCHEDULES);
+  return loadFirestoreData<ScheduleItem>('schedules_data');
 }
 
 export async function loadCancelRequestsFromFirebase(): Promise<CancelRequest[] | null> {
-  return loadCollectionFromFirebase<CancelRequest>(COLLECTION_CANCEL_REQUESTS);
+  return loadFirestoreData<CancelRequest>('cancel_requests_data');
 }
 
 export async function loadFraudChecksFromFirebase(): Promise<FraudCheck[] | null> {
-  return loadCollectionFromFirebase<FraudCheck>(COLLECTION_FRAUD_CHECKS);
+  return loadFirestoreData<FraudCheck>('fraud_checks_data');
 }
 
 // Sync inventory to Firestore
+import { writeBatch, doc } from "firebase/firestore";
+
+// Sync inventory to Firestore
 export async function syncInventoryToFirebase(inventory: InventoryItem[]) {
-  await syncCollectionToFirebase<InventoryItem>(COLLECTION_INVENTORY, inventory);
+  if (typeof window === 'undefined') return;
+
+  try {
+    // ≡ƒÜ¿ Prevent accidental wipes
+    if (!Array.isArray(inventory)) return;
+
+    if (inventory.length === 0) {
+      console.warn("Blocked empty inventory overwrite");
+      return;
+    }
+
+    const batch = writeBatch(db);
+
+    inventory.forEach((item) => {
+      if (!item?.id) return;
+
+      const ref = doc(db, "inventory", item.id);
+
+      batch.set(ref, {
+        ...item,
+        lastUpdated: new Date().toISOString(),
+      });
+    });
+
+    await batch.commit();
+
+    console.log("INVENTORY SYNC SAFE SUCCESS");
+
+  } catch (err) {
+    console.error("Failed inventory sync:", err);
+  }
 }
 
 // Listen for inventory updates from Firestore
-export function listenToInventoryUpdates(callback?: (inventory: InventoryItem[]) => void) {
+export function listenToInventoryUpdates(callback) {
   if (typeof window === 'undefined') return () => {};
 
   try {
-    unsubscribeInventory = onSnapshot(collection(db, COLLECTION_INVENTORY), (snapshot) => {
-      const inventory = snapshotToArray<InventoryItem>(snapshot);
-      saveInventory(inventory);
-      if (callback) callback(inventory);
-    });
+    unsubscribeInventory = onSnapshot(
+      import { collection, onSnapshot } from "firebase/firestore";
+
+export function listenToInventoryUpdates(callback) {
+  if (typeof window === 'undefined') return () => {};
+
+  return onSnapshot(collection(db, "inventory"), (snapshot) => {
+    const inventory = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    saveInventory(inventory);
+    callback?.(inventory);
+  });
+},
+      (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+          const inventory = data?.data || [];
+
+          saveInventory(inventory);
+
+          if (callback) {
+            callback(inventory);
+          }
+        }
+      }
+    );
 
     return unsubscribeInventory;
   } catch (err) {
@@ -396,18 +460,58 @@ export function listenToInventoryUpdates(callback?: (inventory: InventoryItem[])
 
 // Sync schedules to Firestore
 export async function syncSchedulesToFirebase(schedules: ScheduleItem[]) {
-  await syncCollectionToFirebase<ScheduleItem>(COLLECTION_SCHEDULES, schedules);
+  if (typeof window === 'undefined') return;
+  try {
+    import { collection, writeBatch, doc } from "firebase/firestore";
+
+export async function syncSchedulesToFirebase(schedules: ScheduleItem[]) {
+  if (typeof window === 'undefined') return;
+
+  try {
+    if (!Array.isArray(schedules)) return;
+
+    const batch = writeBatch(db);
+
+    schedules.forEach((item) => {
+      if (!item?.id) return;
+
+      const ref = doc(db, "schedules", item.id);
+
+      batch.set(ref, {
+        ...item,
+        lastUpdated: new Date().toISOString(),
+      });
+    });
+
+    await batch.commit();
+  } catch (err) {
+    console.error('Failed to sync schedules:', err);
+  }
+}
+  } catch (err) {
+    console.error('Failed to sync schedules to Firebase:', err);
+  }
 }
 
 // Listen for schedules updates from Firestore
+import { collection, onSnapshot } from "firebase/firestore";
+
 export function listenToSchedulesUpdates() {
   if (typeof window === 'undefined') return;
+
   try {
-    unsubscribeSchedules = onSnapshot(collection(db, COLLECTION_SCHEDULES), (snapshot) => {
-      const schedules = snapshotToArray<ScheduleItem>(snapshot);
-      saveSchedules(schedules);
-      if (schedulesUpdateCallback) schedulesUpdateCallback(schedules);
-    });
+    unsubscribeSchedules = onSnapshot(
+      collection(db, "schedules"),
+      (snapshot) => {
+        const schedules = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+
+        saveSchedules(schedules);
+        schedulesUpdateCallback?.(schedules);
+      }
+    );
   } catch (err) {
     console.error('Failed to listen to schedules updates:', err);
   }
@@ -415,18 +519,56 @@ export function listenToSchedulesUpdates() {
 
 // Sync cancel requests to Firestore
 export async function syncCancelRequestsToFirebase(requests: CancelRequest[]) {
-  await syncCollectionToFirebase<CancelRequest>(COLLECTION_CANCEL_REQUESTS, requests);
+  if (typeof window === 'undefined') return;
+  try {
+   export async function syncCancelRequestsToFirebase(requests: CancelRequest[]) {
+  if (typeof window === 'undefined') return;
+
+  try {
+    if (!Array.isArray(requests)) return;
+
+    const batch = writeBatch(db);
+
+    requests.forEach((req) => {
+      if (!req?.id) return;
+
+      const ref = doc(db, "cancel_requests", req.id);
+
+      batch.set(ref, {
+        ...req,
+        lastUpdated: new Date().toISOString(),
+      });
+    });
+
+    await batch.commit();
+  } catch (err) {
+    console.error('Failed cancel sync:', err);
+  }
+}
+  } catch (err) {
+    console.error('Failed to sync cancel requests to Firebase:', err);
+  }
 }
 
 // Listen for cancel requests updates from Firestore
+import { collection, onSnapshot } from "firebase/firestore";
+
 export function listenToCancelRequestsUpdates() {
   if (typeof window === 'undefined') return;
+
   try {
-    unsubscribeCancelRequests = onSnapshot(collection(db, COLLECTION_CANCEL_REQUESTS), (snapshot) => {
-      const requests = snapshotToArray<CancelRequest>(snapshot);
-      saveCancelRequests(requests);
-      if (cancelRequestsUpdateCallback) cancelRequestsUpdateCallback(requests);
-    });
+    unsubscribeCancelRequests = onSnapshot(
+      collection(db, "cancel_requests"),
+      (snapshot) => {
+        const requests = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+
+        saveCancelRequests(requests);
+        cancelRequestsUpdateCallback?.(requests);
+      }
+    );
   } catch (err) {
     console.error('Failed to listen to cancel requests updates:', err);
   }
@@ -434,18 +576,54 @@ export function listenToCancelRequestsUpdates() {
 
 // Sync fraud checks to Firestore
 export async function syncFraudChecksToFirebase(checks: FraudCheck[]) {
-  await syncCollectionToFirebase<FraudCheck>(COLLECTION_FRAUD_CHECKS, checks);
+  if (typeof window === 'undefined') return;
+  try {
+    export async function syncFraudChecksToFirebase(checks: FraudCheck[]) {
+  if (typeof window === 'undefined') return;
+
+  try {
+    if (!Array.isArray(checks)) return;
+
+    const batch = writeBatch(db);
+
+    checks.forEach((check) => {
+      if (!check?.id) return;
+
+      const ref = doc(db, "fraud_checks", check.id);
+
+      batch.set(ref, {
+        ...check,
+        lastUpdated: new Date().toISOString(),
+      });
+    });
+
+    await batch.commit();
+  } catch (err) {
+    console.error('Failed fraud sync:', err);
+  }
+}
+  } catch (err) {
+    console.error('Failed to sync fraud checks to Firebase:', err);
+  }
 }
 
 // Listen for fraud checks updates from Firestore
 export function listenToFraudChecksUpdates() {
   if (typeof window === 'undefined') return;
+
   try {
-    unsubscribeFraudChecks = onSnapshot(collection(db, COLLECTION_FRAUD_CHECKS), (snapshot) => {
-      const checks = snapshotToArray<FraudCheck>(snapshot);
-      saveFraudChecks(checks);
-      if (fraudChecksUpdateCallback) fraudChecksUpdateCallback(checks);
-    });
+    unsubscribeFraudChecks = onSnapshot(
+      collection(db, "fraud_checks"),
+      (snapshot) => {
+        const checks = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+
+        saveFraudChecks(checks);
+        fraudChecksUpdateCallback?.(checks);
+      }
+    );
   } catch (err) {
     console.error('Failed to listen to fraud checks updates:', err);
   }
@@ -453,23 +631,58 @@ export function listenToFraudChecksUpdates() {
 
 // Sync locations to Firestore
 export async function syncLocationsToFirebase(locations: LocationItem[]) {
-  await syncCollectionToFirebase<LocationItem>(COLLECTION_LOCATIONS, locations);
+  if (typeof window === 'undefined') return;
+  try {
+    export async function syncLocationsToFirebase(locations: LocationItem[]) {
+  if (typeof window === 'undefined') return;
+
+  try {
+    if (!Array.isArray(locations)) return;
+
+    const batch = writeBatch(db);
+
+    locations.forEach((loc) => {
+      if (!loc?.id) return;
+
+      const ref = doc(db, "locations", loc.id);
+
+      batch.set(ref, {
+        ...loc,
+        lastUpdated: new Date().toISOString(),
+      });
+    });
+
+    await batch.commit();
+  } catch (err) {
+    console.error('Failed locations sync:', err);
+  }
+}
+  } catch (err) {
+    console.error('Failed to sync locations to Firebase:', err);
+  }
 }
 
 // Listen for locations updates from Firestore
 export function listenToLocationsUpdates() {
   if (typeof window === 'undefined') return;
+
   try {
-    unsubscribeLocations = onSnapshot(collection(db, COLLECTION_LOCATIONS), (snapshot) => {
-      const locations = snapshotToArray<LocationItem>(snapshot);
-      saveLocations(locations);
-      if (locationsUpdateCallback) locationsUpdateCallback(locations);
-    });
+    unsubscribeLocations = onSnapshot(
+      collection(db, "locations"),
+      (snapshot) => {
+        const locations = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+
+        saveLocations(locations);
+        locationsUpdateCallback?.(locations);
+      }
+    );
   } catch (err) {
     console.error('Failed to listen to locations updates:', err);
   }
 }
-
 // Unsubscribe from all listeners (cleanup)
 export function unsubscribeFromAllUpdates() {
   if (unsubscribeUsers) unsubscribeUsers();

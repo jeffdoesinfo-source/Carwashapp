@@ -1,8 +1,4 @@
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "./firebase"; // adjust path if needed
-import { doc, getDoc } from "firebase/firestore";
-import { db } from "./firebase";
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import {
   loadLocalUsers,
   saveLocalUsers,
@@ -128,7 +124,7 @@ function App() {
   const [fraudSearch, setFraudSearch] = useState('');
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [loginEmail, setLoginEmail] = useState('');
+  const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
@@ -162,19 +158,6 @@ useEffect(() => {
     const localCancelRequests = loadCancelRequests();
     const localFraudChecks = loadFraudChecks();
 
-    const initialLocations = localLocations.length > 0 ? localLocations : [localDefaultLocation];
-
-    setUsers(localUsers);
-    setLocations(initialLocations);
-    setInventory(localInventory);
-    setSchedules(localSchedules);
-    setCancelRequests(localCancelRequests);
-    setFraudChecks(localFraudChecks);
-    setHistory(loadHistory());
-    setNotifications(loadNotifications());
-    setUsersLoaded(true);
-    setLocationsLoaded(true);
-
     const remoteUsers = await loadUsersFromFirebase();
     const remoteLocations = await loadLocationsFromFirebase();
     const remoteInventory = await loadInventoryFromFirebase();
@@ -182,17 +165,23 @@ useEffect(() => {
     const remoteCancelRequests = await loadCancelRequestsFromFirebase();
     const remoteFraudChecks = await loadFraudChecksFromFirebase();
 
-    let effectiveUsers = remoteUsers ?? localUsers;
+    const usersFromServer = remoteUsers ?? localUsers;
+    let effectiveUsers = usersFromServer;
+
     if (!remoteUsers && effectiveUsers.length === 0) {
       const locationId = localLocations[0]?.id || localDefaultLocation.id;
-      const seededUser: User = {
-        id: generateId(),
-        username: 'JeffArmstrong',
-        password: 'ArmstrongFam2024!',
-        role: 'Admin',
-        locationId,
-      };
+
+     const userCred = await createUserWithEmailAndPassword(auth, email, password);
+const uid = userCred.user.uid;
+
+await setDoc(doc(db, "users", uid), {
+  username,
+  role,
+  locationId,
+});
+
       effectiveUsers = [seededUser];
+
       saveLocalUsers(effectiveUsers);
       await saveLocalUsersAsync(effectiveUsers);
       await syncUsersToFirebase(effectiveUsers);
@@ -201,57 +190,32 @@ useEffect(() => {
       await saveLocalUsersAsync(effectiveUsers);
     }
 
-    const effectiveLocations = remoteLocations ?? initialLocations;
+    setUsers(effectiveUsers);
+
+    const effectiveLocations = remoteLocations ?? localLocations;
+    setLocations(effectiveLocations);
     saveLocations(effectiveLocations);
-    if (!remoteLocations && localLocations.length > 0) {
-      await syncLocationsToFirebase(effectiveLocations);
-    }
 
     const effectiveInventory = remoteInventory ?? localInventory;
+    setInventory(effectiveInventory);
     saveInventory(effectiveInventory);
-    if (!remoteInventory && localInventory.length > 0) {
-      await syncInventoryToFirebase(effectiveInventory);
-    }
 
     const effectiveSchedules = remoteSchedules ?? localSchedules;
-    saveSchedules(effectiveSchedules);
-    if (!remoteSchedules && localSchedules.length > 0) {
-      await syncSchedulesToFirebase(effectiveSchedules);
-    }
-
-    const effectiveCancelRequests = remoteCancelRequests ?? localCancelRequests;
-    saveCancelRequests(effectiveCancelRequests);
-    if (!remoteCancelRequests && localCancelRequests.length > 0) {
-      await syncCancelRequestsToFirebase(effectiveCancelRequests);
-    }
-
-    const effectiveFraudChecks = remoteFraudChecks ?? localFraudChecks;
-    saveFraudChecks(effectiveFraudChecks);
-    if (!remoteFraudChecks && localFraudChecks.length > 0) {
-      await syncFraudChecksToFirebase(effectiveFraudChecks);
-    }
-
-    setUsers(effectiveUsers);
-    setLocations(effectiveLocations);
-    setInventory(effectiveInventory);
     setSchedules(effectiveSchedules);
+    saveSchedules(effectiveSchedules);
+
+    const effectiveCancelRequests =
+      remoteCancelRequests ?? localCancelRequests;
     setCancelRequests(effectiveCancelRequests);
+    saveCancelRequests(effectiveCancelRequests);
+
+    const effectiveFraudChecks =
+      remoteFraudChecks ?? localFraudChecks;
     setFraudChecks(effectiveFraudChecks);
+    saveFraudChecks(effectiveFraudChecks);
 
-    setUsersUpdateCallback(setUsers);
-    setLocationsUpdateCallback(setLocations);
-    setInventoryUpdateCallback(setInventory);
-    setSchedulesUpdateCallback(setSchedules);
-    setCancelRequestsUpdateCallback(setCancelRequests);
-    setFraudChecksUpdateCallback(setFraudChecks);
-
-    listenToUsersUpdates();
-    listenToLocationsUpdates();
-    listenToInventoryUpdates();
-    listenToSchedulesUpdates();
-    listenToCancelRequestsUpdates();
-    listenToFraudChecksUpdates();
-
+    setUsersLoaded(true);
+    setLocationsLoaded(true);
     setDefaultAdminSeeded(true);
   };
 
@@ -259,12 +223,56 @@ useEffect(() => {
     void initializeApp();
   }
 
-  return () => {
-    if (defaultAdminSeeded) {
-      unsubscribeFromAllUpdates();
-    }
-  };
+  const unsubscribeInventory = listenToInventoryUpdates((items) => {
+    setInventory(items);
+    saveInventory(items);
+  });
+const unsubscribeUsers = listenToUsersUpdates((items) => {
+  setUsers(items);
+  saveLocalUsers(items);
+});
+
+const unsubscribeSchedules = listenToSchedulesUpdates((items) => {
+  setSchedules(items);
+  saveSchedules(items);
+});
+
+const unsubscribeCancelRequests = listenToCancelRequestsUpdates((items) => {
+  setCancelRequests(items);
+  saveCancelRequests(items);
+});
+ const unsubscribeInventory = listenToInventoryUpdates((items) => {
+  setInventory(items);
+  saveInventory(items);
+});
+
+const unsubscribeUsers = listenToUsersUpdates((items) => {
+  setUsers(items);
+  saveLocalUsers(items);
+});
+
+const unsubscribeSchedules = listenToSchedulesUpdates((items) => {
+  setSchedules(items);
+  saveSchedules(items);
+});
+
+const unsubscribeCancelRequests = listenToCancelRequestsUpdates((items) => {
+  setCancelRequests(items);
+  saveCancelRequests(items);
+});
+
+return () => {
+  unsubscribeInventory();
+  unsubscribeUsers();
+  unsubscribeSchedules();
+  unsubscribeCancelRequests();
+
+  if (defaultAdminSeeded) {
+    unsubscribeFromAllUpdates();
+  }
+};
 }, [defaultAdminSeeded]);
+}, []);
   useEffect(() => {
     if (!currentUser) return;
     if (currentUser.role === 'Admin') {
@@ -340,35 +348,24 @@ useEffect(() => {
     setLoginError('');
     setStatusMessage('Signing in...');
 
-    try {
-      const cred = await signInWithEmailAndPassword(
-        auth,
-        loginEmail.trim(),
-        loginPassword,
-      );
+    const matchedUser = users.find(
+      (user) => user.username === loginUsername.trim() && user.password === loginPassword,
+    );
 
-      const uid = cred.user.uid;
-      const snap = await getDoc(doc(db, 'users', uid));
-
-      if (!snap.exists()) {
-        setLoginError('User profile missing in database');
-        setStatusMessage('');
-        return;
-      }
-
-      const userData = snap.data() as User;
-      setCurrentUser(userData);
+    if (!matchedUser) {
+      setLoginError('Invalid username or password');
       setStatusMessage('');
-      setActiveTab('Dashboard');
-    } catch (err) {
-      setLoginError('Invalid email or password');
-      setStatusMessage('');
+      return;
     }
+
+    setCurrentUser(matchedUser);
+    setStatusMessage('');
+    setActiveTab('Dashboard');
   };
 
   const signOut = () => {
     setCurrentUser(null);
-    setLoginEmail('');
+    setLoginUsername('');
     setLoginPassword('');
     setLoginError('');
     setActiveTab('Dashboard');
@@ -449,7 +446,7 @@ useEffect(() => {
     return { scheduleByLocation, lowInventoryAlerts };
   }, [currentUser, inventory, schedules, locations]);
 
-  const finalizeFraudCheck = async (itemId: string) => {
+  const finalizeFraudCheck = (itemId: string) => {
     if (!currentUser) return;
     const currentFraudChecks = loadFraudChecks();
     const target = currentFraudChecks.find((item) => item.id === itemId);
@@ -749,22 +746,21 @@ setFraudChecks(updatedFraudChecks);
 
    const updatedUsers = users.filter((user) => user.id !== userId);
 
-    try {
-      await syncUsersToFirebase(updatedUsers);
+try {
+  await syncUsersToFirebase(updatedUsers);
 
-      setUsers(updatedUsers);
-      saveLocalUsers(updatedUsers);
-      await saveLocalUsersAsync(updatedUsers);
+  setUsers(updatedUsers);
+  saveLocalUsers(updatedUsers);
+  await saveLocalUsersAsync(updatedUsers);
 
-      createHistoryEntry(
-        'User deleted',
-        `${userToDelete.username} removed`,
-        userToDelete.locationId,
-      );
-    } catch (err) {
-      console.error('Failed to delete user in Firebase:', err);
-    }
-  };
+  createHistoryEntry(
+    'User deleted',
+    `${userToDelete.username} removed`,
+    userToDelete.locationId
+  );
+} catch (err) {
+  console.error('Failed to delete user in Firebase:', err);
+}
 
   const handleEditUser = (user: User) => {
     setEditingUserId(user.id);
@@ -865,8 +861,8 @@ setCancelRequests(updatedCancelRequests);
         <div className="form-card">
           <div className="field-group">
             <label>
-              Email
-              <input value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} />
+              Username
+              <input value={loginUsername} onChange={(event) => setLoginUsername(event.target.value)} />
             </label>
             <label>
               Password
@@ -1011,7 +1007,7 @@ setCancelRequests(updatedCancelRequests);
                         {group.shifts.map((shift) => (
                           <tr key={shift.id}>
                             <td>{shift.date}</td>
-                            <td>{shift.startTime || '—'}{shift.endTime ? `– ${shift.endTime}` : ''}</td>
+                            <td>{shift.startTime || 'ΓÇö'}{shift.endTime ? `ΓÇô ${shift.endTime}` : ''}</td>
                             <td>{shift.title}</td>
                             <td>{shift.assignedTo || 'Unassigned'}</td>
                           </tr>
@@ -1144,9 +1140,9 @@ setCancelRequests(updatedCancelRequests);
                 {shiftSchedules.map((item) => (
                   <tr key={item.id}>
                     <td>{item.date}</td>
-                    <td>{item.startTime || '—'} {item.endTime ? `– ${item.endTime}` : ''}</td>
+                    <td>{item.startTime || 'ΓÇö'} {item.endTime ? `ΓÇô ${item.endTime}` : ''}</td>
                     <td>{item.title}</td>
-                    <td>{item.assignedTo || '—'}</td>
+                    <td>{item.assignedTo || 'ΓÇö'}</td>
                     <td>
                       {item.done ? (
                         'Done'
@@ -1198,10 +1194,10 @@ setCancelRequests(updatedCancelRequests);
                 {choreSchedules.map((item) => (
                   <tr key={item.id}>
                     <td>{item.date}</td>
-                    <td>{item.startTime || '—'} {item.endTime ? `– ${item.endTime}` : ''}</td>
+                    <td>{item.startTime || 'ΓÇö'} {item.endTime ? `ΓÇô ${item.endTime}` : ''}</td>
                     <td>{item.title}</td>
                     <td>{item.type}</td>
-                    <td>{item.assignedTo || '—'}</td>
+                    <td>{item.assignedTo || 'ΓÇö'}</td>
                     <td>
                       {item.completedBy ? (
                         <span className="badge done">Completed by {item.completedBy}</span>
@@ -1463,7 +1459,7 @@ setCancelRequests(updatedCancelRequests);
                     <td>{item.customerName}</td>
                     <td>{item.licensePlate}</td>
                     <td>{item.location}</td>
-                    <td>{item.membership || '—'}</td>
+                    <td>{item.membership || 'ΓÇö'}</td>
                     <td>{item.done ? (item.active ? 'Active' : 'Not Active') : 'Open'}</td>
                     <td>{item.note}</td>
                     <td>
