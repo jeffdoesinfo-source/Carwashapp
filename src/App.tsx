@@ -309,13 +309,21 @@ function App() {
   };
 }, [defaultAdminSeeded]);
   useEffect(() => {
-    if (!currentUser) return;
-    if (currentUser.role === 'Admin') {
-      setSelectedLocationId(locations[0]?.id || currentUser.locationId);
-    } else {
-      setSelectedLocationId(currentUser.locationId);
+    if (!currentUser) {
+      setSelectedLocationId('');
+      return;
     }
-  }, [currentUser, locations]);
+
+    if (currentUser.role !== 'Admin') {
+      setSelectedLocationId(currentUser.locationId || '');
+      return;
+    }
+
+    const hasValidSelection = selectedLocationId === ALL_LOCATIONS_ID || locations.some((location) => location.id === selectedLocationId);
+    if (!hasValidSelection) {
+      setSelectedLocationId(ALL_LOCATIONS_ID);
+    }
+  }, [currentUser, locations, selectedLocationId]);
 
   // After auth, load remote data with proper location scope and start listeners
   useEffect(() => {
@@ -910,6 +918,7 @@ await setDoc(doc(db, 'locations', newLocation.id), newLocation);
 
 saveLocations(updatedLocations);
 setLocations(updatedLocations);
+setSelectedLocationId(newLocation.id);
     createHistoryEntry('Location added', newLocationName, newLocation.id);
     setNewLocationName('');
     setNewLocationThreshold(5);
@@ -1033,7 +1042,7 @@ setLocations(updatedLocations);
       
       {/* Desktop sidebar + main layout */}
       <div style={{display:'flex',width:'100%'}}>
-        <aside style={{width:220,display:'none'}}>
+        <aside style={{width:220}}>
           <Sidebar tabs={availableTabs} activeTab={activeTab} onSelect={(t) => setActiveTab(t as any)} />
         </aside>
         <main style={{flex:1}}>
