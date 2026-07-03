@@ -4,7 +4,6 @@ import { doc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Sidebar from './components/Sidebar';
-import Topbar from './components/Topbar';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import {
   loadLocalUsers,
@@ -1311,6 +1310,8 @@ setSelectedLocationId(newLocation.id);
             </div>
             {currentUser.role === 'Crew' ? (
               <p>Crew members can view their own shifts or switch to the full location schedule. Schedule creation is restricted to Managers and Admins.</p>
+            ) : currentUser.role !== 'Admin' && currentUser.role !== 'Manager' ? (
+              <p>You must be a Manager or Admin to create schedules.</p>
             ) : (
               <div className="field-group">
                 <label>
@@ -1418,10 +1419,6 @@ setSelectedLocationId(newLocation.id);
                       {shift.done ? (
                         <button className="secondary small" disabled>
                           Completed
-                        </button>
-                      ) : currentUser.role === 'Crew' ? (
-                        <button className="secondary small" disabled>
-                          Pending
                         </button>
                       ) : (
                         <button
