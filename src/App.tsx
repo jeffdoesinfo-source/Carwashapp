@@ -136,6 +136,16 @@ function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [defaultAdminSeeded, setDefaultAdminSeeded] = useState(false);
   const [scheduleViewMode, setScheduleViewMode] = useState<'mine' | 'all'>('mine');
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    const saved = localStorage.getItem('theme-mode');
+    return saved ? saved === 'dark' : true;
+  });
+  const [showSettings, setShowSettings] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem('theme-mode', isDarkMode ? 'dark' : 'light');
+    document.documentElement.setAttribute('data-theme', isDarkMode ? 'dark' : 'light');
+  }, [isDarkMode]);
 
   const appLocationId = useMemo(() => {
     if (!currentUser) return '';
@@ -144,6 +154,11 @@ function App() {
     }
     return currentUser.locationId;
   }, [currentUser, selectedLocationId]);
+
+  useEffect(() => {
+    localStorage.setItem('theme-mode', isDarkMode ? 'dark' : 'light');
+    document.documentElement.setAttribute('data-theme', isDarkMode ? 'dark' : 'light');
+  }, [isDarkMode]);
 
   const locationUsers = useMemo(() => {
     if (!currentUser) return [];
@@ -1079,6 +1094,7 @@ setSelectedLocationId(newLocation.id);
             onLocationChange={(id: string) => setSelectedLocationId(id)}
             onSignOut={signOut}
             onMenuToggle={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            onSettingsToggle={() => setShowSettings(!showSettings)}
             isMobileMenuOpen={isMobileMenuOpen}
           />
           <div className="header">
@@ -1736,6 +1752,28 @@ setSelectedLocationId(newLocation.id);
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {showSettings && (
+        <div className="modal-overlay" onClick={() => setShowSettings(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2>Settings</h2>
+              <button className="secondary small" onClick={() => setShowSettings(false)}>✕</button>
+            </div>
+            <div className="field-group">
+              <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={isDarkMode}
+                  onChange={(e) => setIsDarkMode(e.target.checked)}
+                  style={{ cursor: 'pointer' }}
+                />
+                <span>Dark mode</span>
+              </label>
+            </div>
+          </div>
         </div>
       )}
 
