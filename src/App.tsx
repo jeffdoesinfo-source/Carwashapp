@@ -1076,27 +1076,39 @@ setSelectedLocationId(newLocation.id);
         className={`sidebar-wrapper ${isMobileMenuOpen ? 'open' : ''}`}
         style={{display:'none'}}
       >
-        <Sidebar tabs={availableTabs} activeTab={activeTab} onSelect={(t) => { setActiveTab(t as any); setIsMobileMenuOpen(false); }} />
+        <Sidebar 
+          tabs={availableTabs} 
+          activeTab={activeTab} 
+          onSelect={(t) => { setActiveTab(t as any); setIsMobileMenuOpen(false); }}
+          currentUser={currentUser}
+          locations={locations}
+          selectedLocationId={selectedLocationId}
+          appLocation={appLocation}
+          unreadCount={dashboardCounts.notifications}
+          onLocationChange={(id: string) => setSelectedLocationId(id)}
+          onSignOut={signOut}
+          onSettingsToggle={() => setShowSettings(!showSettings)}
+        />
       </div>
       
       {/* Desktop sidebar + main layout */}
       <div style={{display:'flex',width:'100%'}}>
         <aside style={{width:220}}>
-          <Sidebar tabs={availableTabs} activeTab={activeTab} onSelect={(t) => setActiveTab(t as any)} />
-        </aside>
-        <main style={{flex:1}}>
-          <Topbar
+          <Sidebar 
+            tabs={availableTabs} 
+            activeTab={activeTab} 
+            onSelect={(t) => setActiveTab(t as any)}
             currentUser={currentUser}
-            locationName={appLocation?.name}
-            unreadCount={dashboardCounts.notifications}
             locations={locations}
             selectedLocationId={selectedLocationId}
+            appLocation={appLocation}
+            unreadCount={dashboardCounts.notifications}
             onLocationChange={(id: string) => setSelectedLocationId(id)}
             onSignOut={signOut}
-            onMenuToggle={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             onSettingsToggle={() => setShowSettings(!showSettings)}
-            isMobileMenuOpen={isMobileMenuOpen}
           />
+        </aside>
+        <main style={{flex:1}}>
           <div className="header">
             <div>
               <h1>Carwash Staff Management</h1>
