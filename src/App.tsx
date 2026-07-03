@@ -189,6 +189,10 @@ function App() {
     );
   }, [schedules, currentUser, selectedLocationId, appLocationId]);
 
+  const fraudNeedingReVerification = useMemo(() => {
+    return fraudChecks.filter((item) => !item.done && isNeedingReVerification(item)).length;
+  }, [fraudChecks]);
+
   const visibleShiftSchedules = useMemo(() => {
     if (!currentUser) return [];
 
@@ -534,6 +538,13 @@ function App() {
     }
     return visibleNotifications.filter((item) => !item.read);
   }, [visibleNotifications, currentUser, selectedLocationId]);
+
+  const isNeedingReVerification = (item: FraudCheck): boolean => {
+    const verificationDate = item.lastVerifiedAt || item.createdAt;
+    const daysSinceVerification = (Date.now() - new Date(verificationDate).getTime()) / (1000 * 60 * 60 * 24);
+    return daysSinceVerification > 15;
+  };
+
   const displayedFraudChecks = useMemo(() => {
     const searchText = fraudSearch.trim().toLowerCase();
     if (!searchText) return fraudChecks;
@@ -580,6 +591,36 @@ function App() {
     return { scheduleByLocation, lowInventoryAlerts };
   }, [currentUser, inventory, schedules, locations]);
 
+  const reVerifyFraudCheck = async (itemId: string) => {
+    if (!currentUser) return;
+
+    const currentFraudChecks = loadFraudChecks();
+    const target = currentFraudChecks.find((item) => item.id === itemId);
+    if (!target) return;
+
+    try {
+      const updated = {
+        ...target,
+        lastVerifiedAt: new Date().toISOString(),
+      };
+
+      const updatedFraudChecks = currentFraudChecks.map((item) =>
+        item.id === itemId ? updated : item,
+      );
+
+      const updatedItem = updatedFraudChecks.find((i) => i.id === itemId);
+      if (updatedItem) {
+        await setDoc(doc(db, 'fraud_checks', itemId), updatedItem, { merge: true });
+      }
+
+      saveFraudChecks(updatedFraudChecks);
+      setFraudChecks(updatedFraudChecks);
+      createHistoryEntry('Fraud plate re-verified', `${target.customerName} / ${target.licensePlate}`, target.locationId || '');
+    } catch (err) {
+      console.error('Error re-verifying fraud check:', err);
+    }
+  };
+
   const finalizeFraudCheck = async (itemId: string) => {
     if (!currentUser) return;
     const currentFraudChecks = loadFraudChecks();
@@ -596,7 +637,7 @@ function App() {
 
     const updatedFraudChecks = currentFraudChecks.map((item) =>
       item.id === itemId
-        ? { ...item, done: true, membership, active }
+        ? { ...item, done: true, membership, active, lastVerifiedAt: new Date().toISOString() }
         : item,
     );
 
@@ -795,11 +836,13 @@ const updatedCancelRequests = [...currentCancelRequests, newItem];
   const handleAddFraud = async () => {
     if (!currentUser || !newFraud.customerName || !newFraud.licensePlate || !newFraud.location) return;
 
+    const now = new Date().toISOString();
     const newItem: FraudCheck = {
       id: generateId(),
       ...newFraud,
       done: false,
-      createdAt: new Date().toISOString(),
+      createdAt: now,
+      lastVerifiedAt: now,
     };
 
   const currentFraudChecks = loadFraudChecks();
@@ -1703,33 +1746,49 @@ setSelectedLocationId(newLocation.id);
                   <th>Location</th>
                   <th>Membership</th>
                   <th>Status</th>
+                  <th>Verification</th>
                   <th>Note</th>
                   <th>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {displayedFraudChecks.map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.customerName}</td>
-                    <td>{item.licensePlate}</td>
-                    <td>{item.location}</td>
-                    <td>{item.membership || '—'}</td>
-                    <td>{item.done ? (item.active ? 'Active' : 'Not Active') : 'Open'}</td>
-                    <td>{item.note}</td>
-                    <td>
-                      {!item.done ? (
-                        <button className="small" onClick={() => finalizeFraudCheck(item.id)}>
-                          Mark done
-                        </button>
-                      ) : (
-                        'Resolved'
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {displayedFraudChecks.map((item) => {
+                  const needsReVerification = isNeedingReVerification(item) && !item.done;
+                  return (
+                    <tr key={item.id} style={{ backgroundColor: needsReVerification ? 'rgba(211,47,47,0.1)' : 'transparent' }}>
+                      <td>{item.customerName}</td>
+                      <td>{item.licensePlate}</td>
+                      <td>{item.location}</td>
+                      <td>{item.membership || '—'}</td>
+                      <td>{item.done ? (item.active ? 'Active' : 'Not Active') : 'Open'}</td>
+                      <td>
+                        {needsReVerification ? (
+                          <span className="badge pending" style={{ fontSize: 11 }}>Re-verify needed</span>
+                        ) : (
+                          <span className="badge done" style={{ fontSize: 11 }}>Verified</span>
+                        )}
+                      </td>
+                      <td>{item.note}</td>
+                      <td style={{ display: 'flex', gap: '6px' }}>
+                        {needsReVerification && (
+                          <button className="small" onClick={() => reVerifyFraudCheck(item.id)} title="Re-verify this record">
+                            Verify
+                          </button>
+                        )}
+                        {!item.done ? (
+                          <button className="small" onClick={() => finalizeFraudCheck(item.id)}>
+                            Mark done
+                          </button>
+                        ) : (
+                          'Resolved'
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
                 {displayedFraudChecks.length === 0 && (
                   <tr>
-                    <td colSpan={7}>No fraud plate checks match the search or records are empty.</td>
+                    <td colSpan={8}>No fraud plate checks match the search or records are empty.</td>
                   </tr>
                 )}
               </tbody>

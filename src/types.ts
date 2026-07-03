@@ -68,6 +68,7 @@ export interface FraudCheck {
   active?: boolean;
   done: boolean;
   createdAt: string;
+  lastVerifiedAt?: string;
 }
 
 export interface HistoryEntry {
