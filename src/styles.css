@@ -186,6 +186,27 @@ th,td{padding:10px 8px;border-bottom:1px solid rgba(255,255,255,0.03);color:var(
   font-size: 0.95rem;
 }
 
+.schedule-view-controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.toggle-pill {
+  border: 1px solid rgba(255,255,255,0.08);
+  background: transparent;
+  color: var(--muted-text);
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.toggle-pill.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
 .badge-row {
   display: flex;
   flex-wrap: wrap;

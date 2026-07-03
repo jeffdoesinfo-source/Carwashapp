@@ -135,6 +135,7 @@ function App() {
   const [locationsLoaded, setLocationsLoaded] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [defaultAdminSeeded, setDefaultAdminSeeded] = useState(false);
+  const [scheduleViewMode, setScheduleViewMode] = useState<'mine' | 'all'>('mine');
 
   const appLocationId = useMemo(() => {
     if (!currentUser) return '';
@@ -173,10 +174,19 @@ function App() {
     );
   }, [schedules, currentUser, selectedLocationId, appLocationId]);
 
-  const visibleShiftSchedules = useMemo(
-    () => visibleSchedules.filter((item) => item.type === 'Shift'),
-    [visibleSchedules],
-  );
+  const visibleShiftSchedules = useMemo(() => {
+    if (!currentUser) return [];
+
+    const scopeSchedules = currentUser.role === 'Crew'
+      ? schedules.filter((item) => item.locationId === appLocationId && item.type === 'Shift')
+      : visibleSchedules.filter((item) => item.type === 'Shift');
+
+    if (scheduleViewMode === 'mine') {
+      return scopeSchedules.filter((item) => item.assignedTo === currentUser.username);
+    }
+
+    return scopeSchedules;
+  }, [schedules, visibleSchedules, currentUser, appLocationId, scheduleViewMode]);
 
   const visibleChoreSchedules = useMemo(
     () => visibleSchedules.filter((item) => item.type !== 'Shift'),
@@ -1197,12 +1207,25 @@ setSelectedLocationId(newLocation.id);
             <div className="section-header">
               <div>
                 <h2>Shift schedule</h2>
-                <p>Only shift work assignments are shown here. Crew members see their own shifts.</p>
+                <p>Switch between your shifts and the full team schedule for the selected location.</p>
               </div>
-              <span className="badge pending">{visibleShiftSchedules.length} shift{visibleShiftSchedules.length === 1 ? '' : 's'}</span>
+              <div className="schedule-view-controls">
+                <button
+                  className={`toggle-pill ${scheduleViewMode === 'mine' ? 'active' : ''}`}
+                  onClick={() => setScheduleViewMode('mine')}
+                >
+                  My shifts
+                </button>
+                <button
+                  className={`toggle-pill ${scheduleViewMode === 'all' ? 'active' : ''}`}
+                  onClick={() => setScheduleViewMode('all')}
+                >
+                  All shifts
+                </button>
+              </div>
             </div>
             {currentUser.role === 'Crew' ? (
-              <p>Crew members can view their shifts and team assignments here. Schedule creation is restricted to Managers and Admins.</p>
+              <p>Crew members can view their own shifts or switch to the full location schedule. Schedule creation is restricted to Managers and Admins.</p>
             ) : (
               <div className="field-group">
                 <label>
