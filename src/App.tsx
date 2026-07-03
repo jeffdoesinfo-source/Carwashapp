@@ -811,6 +811,19 @@ const updatedCancelRequests = [...currentCancelRequests, newItem];
     if (!currentUser || currentUser.role !== 'Admin' || !newUser.username || !newUser.locationId) return;
     setActionMessage('');
 
+    const normalizedEmail = newUser.email.trim();
+    const normalizedPassword = newUser.password;
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      setActionMessage('Please enter a valid email address.');
+      return;
+    }
+
+    if (normalizedPassword.length < 8) {
+      setActionMessage('Please use a password with at least 8 characters.');
+      return;
+    }
+
     try {
       if (editingUserId) {
         // Update Firestore user profile (no passwords stored)
@@ -836,8 +849,8 @@ const updatedCancelRequests = [...currentCancelRequests, newItem];
         setActionMessage('User account updated successfully.');
       } else {
         // Creating a new user: create Firebase Auth account then create users/{uid} profile
-        if (!newUser.email || !newUser.password) {
-          setActionMessage('Email and password required to create a new user.');
+        if (!normalizedEmail || !normalizedPassword) {
+          setActionMessage('Email and password are required to create a new user.');
           return;
         }
         // Call admin Cloud Function to create user without affecting admin session
@@ -845,8 +858,8 @@ const updatedCancelRequests = [...currentCancelRequests, newItem];
           const functions = getFunctions();
           const createUserFn = httpsCallable(functions, 'createUser');
           const result = (await createUserFn({
-            email: newUser.email.trim(),
-            password: newUser.password,
+            email: normalizedEmail,
+            password: normalizedPassword,
             username: newUser.username.trim(),
             role: newUser.role,
             locationId: newUser.locationId,
@@ -864,7 +877,8 @@ const updatedCancelRequests = [...currentCancelRequests, newItem];
           setActionMessage('New user account created.');
         } catch (err: any) {
           console.error('createUser function failed', err);
-          setActionMessage(err?.message || 'Failed to create user via Cloud Function');
+          const details = err?.message || 'Failed to create user via Cloud Function';
+          setActionMessage(`${details}. If this is the first time, deploy the Firebase Functions backend and confirm the signed-in admin has a Firestore profile under users/{uid}.`);
         }
       }
     } catch (err: any) {
@@ -1758,11 +1772,11 @@ setSelectedLocationId(newLocation.id);
               </label>
               <label>
                 Email
-                <input value={newUser.email} onChange={(event) => setNewUser({ ...newUser, email: event.target.value })} />
+                <input type="email" autoComplete="email" value={newUser.email} onChange={(event) => setNewUser({ ...newUser, email: event.target.value })} />
               </label>
               <label>
                 Password
-                <input type="password" value={newUser.password} onChange={(event) => setNewUser({ ...newUser, password: event.target.value })} />
+                <input type="password" autoComplete="new-password" value={newUser.password} onChange={(event) => setNewUser({ ...newUser, password: event.target.value })} />
               </label>
               <label>
                 Role
@@ -1816,6 +1830,9 @@ setSelectedLocationId(newLocation.id);
                 ))}
               </div>
             </div>
+            <p className="alert" style={{ marginTop: 12 }}>
+              This creates the Firebase Auth account and the matching Firestore profile automatically. If it fails, the Cloud Function usually needs to be deployed or the current admin account needs a valid users/{"{uid}"} profile.
+            </p>
             <button className="primary" onClick={handleCreateUser}>
               Create user
             </button>

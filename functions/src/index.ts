@@ -26,21 +26,34 @@ export const createUser = functions.region('us-central1').https.onCall(async (da
   }
 
   const { email, password, username, role, locationId, permissions } = data || {};
-  if (!email || !password || !username || !role || !locationId) {
+  const normalizedEmail = String(email || '').trim();
+  const normalizedPassword = String(password || '');
+  const normalizedUsername = String(username || '').trim();
+
+  if (!normalizedEmail || !normalizedPassword || !normalizedUsername || !role || !locationId) {
     throw new functions.https.HttpsError('invalid-argument', 'Missing required user creation fields.');
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    throw new functions.https.HttpsError('invalid-argument', 'Please provide a valid email address.');
+  }
+
+  if (normalizedPassword.length < 8) {
+    throw new functions.https.HttpsError('invalid-argument', 'Password must be at least 8 characters.');
   }
 
   try {
     const userRecord = await admin.auth().createUser({
-      email: String(email),
-      password: String(password),
-      displayName: String(username),
+      email: normalizedEmail,
+      password: normalizedPassword,
+      displayName: normalizedUsername,
+      emailVerified: false,
     });
 
     const uid = userRecord.uid;
     const profile = {
       id: uid,
-      username: String(username),
+      username: normalizedUsername,
       role: String(role),
       locationId: String(locationId),
       permissions: permissions || [],
