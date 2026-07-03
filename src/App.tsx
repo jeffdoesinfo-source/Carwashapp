@@ -1105,41 +1105,36 @@ setSelectedLocationId(newLocation.id);
   };
 
   return (
-    <div className="app-shell">
-      {/* Mobile overlay */}
-      <div 
-        className={`mobile-overlay ${isMobileMenuOpen ? 'open' : ''}`}
-        onClick={() => setIsMobileMenuOpen(false)}
-        style={{display:'none'}}
-      />
-      
-      {/* Mobile sidebar wrapper */}
-      <div 
-        className={`sidebar-wrapper ${isMobileMenuOpen ? 'open' : ''}`}
-        style={{display:'none'}}
-      >
-        <Sidebar 
-          tabs={availableTabs} 
-          activeTab={activeTab} 
-          onSelect={(t) => { setActiveTab(t as any); setIsMobileMenuOpen(false); }}
-          currentUser={currentUser}
-          locations={locations}
-          selectedLocationId={selectedLocationId}
-          appLocation={appLocation}
-          unreadCount={dashboardCounts.notifications}
-          onLocationChange={(id: string) => setSelectedLocationId(id)}
-          onSignOut={signOut}
-          onSettingsToggle={() => setShowSettings(!showSettings)}
-        />
+    <div className="app-shell" style={{display:'flex',flexDirection:'column',height:'100vh'}}>
+      {/* Header bar with hamburger menu */}
+      <div className="top-bar">
+        <button 
+          className="hamburger-btn"
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          aria-label="Toggle menu"
+        >
+          ☰
+        </button>
+        <div className="header-content">
+          <h1>Carwash Staff Management</h1>
+        </div>
+        <div style={{width:40}} />
       </div>
-      
-      {/* Desktop sidebar + main layout */}
-      <div style={{display:'flex',width:'100%'}}>
-        <aside style={{width:220}}>
+
+      {/* Main content area */}
+      <div style={{display:'flex',flex:1,overflow:'hidden'}}>
+        {/* Overlay for mobile */}
+        <div 
+          className={`mobile-overlay ${isMobileMenuOpen ? 'open' : ''}`}
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+        
+        {/* Collapsible sidebar */}
+        <aside className={`sidebar-container ${isMobileMenuOpen ? 'open' : ''}`}>
           <Sidebar 
             tabs={availableTabs} 
             activeTab={activeTab} 
-            onSelect={(t) => setActiveTab(t as any)}
+            onSelect={(t) => { setActiveTab(t as any); setIsMobileMenuOpen(false); }}
             currentUser={currentUser}
             locations={locations}
             selectedLocationId={selectedLocationId}
@@ -1150,48 +1145,9 @@ setSelectedLocationId(newLocation.id);
             onSettingsToggle={() => setShowSettings(!showSettings)}
           />
         </aside>
-        <main style={{flex:1}}>
-          <div className="header">
-            <div>
-              <h1>Carwash Staff Management</h1>
-              <p>
-                Signed in as <strong>{currentUser.username}</strong> ({currentUser.role})
-              </p>
-              <p>Location: {appLocation?.name || 'All locations'}</p>
-            </div>
-            <div>
-              {currentUser.role === 'Admin' && (
-                <label>
-                  Active location
-                  <select value={selectedLocationId} onChange={(event) => setSelectedLocationId(event.target.value)}>
-                    <option value={ALL_LOCATIONS_ID}>All locations</option>
-                    {locations.map((location) => (
-                      <option key={location.id} value={location.id}>
-                        {location.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              <button className="secondary" onClick={signOut}>
-                Sign out
-              </button>
-            </div>
-          </div>
-
-          <div className="nav-tabs">
-            {availableTabs.map((tab) => (
-              <button
-                key={tab}
-                className={`tab-button ${activeTab === tab ? 'active' : ''}`}
-                onClick={() => setActiveTab(tab)}
-              >
-                {tab}
-              </button>
-            ))}
-          </div>
-        </main>
-      </div>
+        
+        {/* Main content */}
+        <main style={{flex:1,overflow:'auto'}}
 
       {activeTab === 'Dashboard' && (
         <>
@@ -2034,6 +1990,8 @@ setLocationThresholdEdits((prev) => {
           </div>
         </div>
       )}
+        </main>
+      </div>
     </div>
   );
 }
