@@ -215,6 +215,7 @@ th,td{padding:10px 8px;border-bottom:1px solid rgba(255,255,255,0.03);color:var(
   
   .app-shell .sidebar-wrapper.open {
     display: block !important;
+    z-index: 1100;
   }
   
   .app-shell .mobile-overlay {
@@ -225,11 +226,13 @@ th,td{padding:10px 8px;border-bottom:1px solid rgba(255,255,255,0.03);color:var(
     right: 0;
     bottom: 0;
     background: rgba(0, 0, 0, 0.5);
-    z-index: 999;
+    z-index: 1000;
   }
   
   .app-shell .mobile-overlay.open {
     display: block !important;
+    z-index: 1000;
+    pointer-events: auto;
   }
 
   /* Ensure the actual sidebar content is visible when inside the full-screen wrapper */
@@ -240,6 +243,9 @@ th,td{padding:10px 8px;border-bottom:1px solid rgba(255,255,255,0.03);color:var(
     box-sizing: border-box;
     height: 100%;
     overflow-y: auto;
+    position: relative;
+    z-index: 1101;
+    pointer-events: auto;
   }
   
   .hamburger {
