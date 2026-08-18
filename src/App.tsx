@@ -1413,6 +1413,52 @@ setSelectedLocationId(newLocation.id);
               </div>
               <span className="badge pending">{visibleChoreSchedules.length} chore{visibleChoreSchedules.length === 1 ? '' : 's'}</span>
             </div>
+            {currentUser.role === 'Crew' ? (
+              <p style={{marginTop:12}}>Crew members cannot create chores. Contact a Manager or Admin to add tasks.</p>
+            ) : (
+              <div style={{marginTop:12}}>
+                <div className="field-group">
+                  <label>
+                    Title
+                    <input
+                      value={newSchedule.title}
+                      onChange={(e) => setNewSchedule({ ...newSchedule, title: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Date
+                    <input
+                      type="date"
+                      value={newSchedule.date}
+                      onChange={(e) => setNewSchedule({ ...newSchedule, date: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Type
+                    <select
+                      value={newSchedule.type}
+                      onChange={(e) => setNewSchedule({ ...newSchedule, type: e.target.value as ScheduleItem['type'] })}
+                    >
+                      <option value="Daily Chore">Daily Chore</option>
+                      <option value="Extra Chore">Extra Chore</option>
+                    </select>
+                  </label>
+                  <label>
+                    Assigned to
+                    <select
+                      value={newSchedule.assignedTo}
+                      onChange={(e) => setNewSchedule({ ...newSchedule, assignedTo: e.target.value })}
+                    >
+                      <option value="">Unassigned</option>
+                      {locationUsers.map((user) => (
+                        <option key={user.id} value={user.username}>{user.username}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <button className="primary" onClick={handleCreateSchedule}>Add chore</button>
+              </div>
+            )}
           </div>
 
           <div className="card-grid">
