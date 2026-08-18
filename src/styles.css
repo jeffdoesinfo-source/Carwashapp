@@ -231,6 +231,16 @@ th,td{padding:10px 8px;border-bottom:1px solid rgba(255,255,255,0.03);color:var(
   .app-shell .mobile-overlay.open {
     display: block !important;
   }
+
+  /* Ensure the actual sidebar content is visible when inside the full-screen wrapper */
+  .app-shell .sidebar-wrapper .sidebar {
+    display: block !important;
+    width: 100% !important;
+    padding: 18px;
+    box-sizing: border-box;
+    height: 100%;
+    overflow-y: auto;
+  }
   
   .hamburger {
     display: flex !important;
