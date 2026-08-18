@@ -963,6 +963,59 @@ const updatedCancelRequests = [...currentCancelRequests, newItem];
     setActionMessage('User deletion must be performed via the Admin Cloud Function.');
   };
 
+  const handleUpdateUserLocation = async (userId: string, locationId: string) => {
+    if (!currentUser || currentUser.role !== 'Admin') return;
+    const userToUpdate = users.find((u) => u.id === userId);
+    if (!userToUpdate) return;
+    try {
+      await setDoc(doc(db, 'users', userId), { locationId }, { merge: true });
+      const updated = users.map((u) => (u.id === userId ? { ...u, locationId } : u));
+      setUsers(updated);
+      saveLocalUsers(updated);
+      await saveLocalUsersAsync(updated);
+      createHistoryEntry('User updated', `Assigned ${userToUpdate.username} to ${locations.find(l => l.id === locationId)?.name || 'Unassigned'}`, locationId || userToUpdate.locationId || '');
+      setActionMessage('User location updated.');
+    } catch (err) {
+      console.error('Failed to update user location', err);
+      setActionMessage('Failed to update user location.');
+    }
+  };
+
+  const handleDeleteLocation = async (locationId: string) => {
+    if (!currentUser || currentUser.role !== 'Admin') return;
+    const location = locations.find((l) => l.id === locationId);
+    if (!location) return;
+    if (!window.confirm(`Delete location ${location.name}? This will unassign users from this location and remove the location.`)) return;
+
+    try {
+      // Delete location document
+      await deleteDoc(doc(db, 'locations', locationId));
+
+      // Unassign users assigned to this location
+      const updatedUsers = users.map((u) => (u.locationId === locationId ? { ...u, locationId: '' } : u));
+      for (const u of users.filter(us => us.locationId === locationId)) {
+        try {
+          await setDoc(doc(db, 'users', u.id), { locationId: '' }, { merge: true });
+        } catch (e) {
+          console.warn('Failed to unassign user', u.id, e);
+        }
+      }
+
+      const remaining = locations.filter((l) => l.id !== locationId);
+      saveLocations(remaining);
+      setLocations(remaining);
+      setUsers(updatedUsers);
+      saveLocalUsers(updatedUsers);
+      await saveLocalUsersAsync(updatedUsers);
+
+      createHistoryEntry('Location deleted', location.name, locationId);
+      setActionMessage('Location deleted and users unassigned.');
+    } catch (err) {
+      console.error('Failed to delete location', err);
+      setActionMessage('Failed to delete location.');
+    }
+  };
+
   const handleEditUser = (user: User) => {
     setEditingUserId(user.id);
     setNewUser({
@@ -1992,6 +2045,9 @@ setLocationThresholdEdits((prev) => {
                   >
                     Save
                   </button>
+                  <button className="small danger" onClick={() => handleDeleteLocation(location.id)} style={{ marginLeft: 8 }}>
+                    Delete
+                  </button>
                 </label>
               ))}
             </div>
@@ -2014,7 +2070,21 @@ setLocationThresholdEdits((prev) => {
                   <tr key={user.id}>
                     <td>{user.username}</td>
                     <td>{user.role}</td>
-                    <td>{locations.find((loc) => loc.id === user.locationId)?.name || 'Unknown'}</td>
+                    <td>
+                      {currentUser.role === 'Admin' ? (
+                        <select
+                          value={user.locationId || ''}
+                          onChange={(e) => handleUpdateUserLocation(user.id, e.target.value)}
+                        >
+                          <option value="">Unassigned</option>
+                          {locations.map((loc) => (
+                            <option key={loc.id} value={loc.id}>{loc.name}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        locations.find((loc) => loc.id === user.locationId)?.name || 'Unknown'
+                      )}
+                    </td>
                     <td>{getPermissionsForUser(user).join(', ')}</td>
                     <td>
                       <button className="small" onClick={() => handleEditUser(user)}>
