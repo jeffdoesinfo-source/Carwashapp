@@ -1107,16 +1107,16 @@ setSelectedLocationId(newLocation.id);
   return (
     <div className="app-shell" style={{display:'flex',flexDirection:'column',height:'100vh'}}>
       {/* Header bar with hamburger menu */}
-      <div className="top-bar">
-        <button 
-          className="hamburger-btn"
+      <div className="topbar">
+        <button
+          className="hamburger"
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
           aria-label="Toggle menu"
         >
           ☰
         </button>
         <div className="header-content">
-          <h1>Carwash Staff Management</h1>
+          <h1 style={{fontSize:16,margin:0}}>Carwash Staff Management</h1>
         </div>
         <div style={{width:40}} />
       </div>
@@ -1130,7 +1130,7 @@ setSelectedLocationId(newLocation.id);
         />
         
         {/* Collapsible sidebar */}
-        <aside className={`sidebar-container ${isMobileMenuOpen ? 'open' : ''}`}>
+        <aside className={`sidebar-wrapper ${isMobileMenuOpen ? 'open' : ''}`}>
           <Sidebar 
             tabs={availableTabs} 
             activeTab={activeTab} 
@@ -1147,7 +1147,7 @@ setSelectedLocationId(newLocation.id);
         </aside>
         
         {/* Main content */}
-        <main style={{flex:1,overflow:'auto'}}
+        <main className="main" style={{flex:1,overflow:'auto'}}>
 
       {activeTab === 'Dashboard' && (
         <>
