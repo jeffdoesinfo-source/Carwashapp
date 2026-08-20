@@ -3,6 +3,7 @@ import { db } from '../firebase';
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
   writeBatch,
@@ -357,6 +358,17 @@ export async function loadLocationsFromFirebase(): Promise<LocationItem[] | null
   return loadCollectionFromFirebase<LocationItem>(COLLECTION_LOCATIONS, undefined, true);
 }
 
+export async function loadLocationFromFirebase(locationId: string): Promise<LocationItem | null> {
+  if (typeof window === 'undefined' || !locationId) return null;
+  try {
+    const snapshot = await getDoc(doc(db, COLLECTION_LOCATIONS, locationId));
+    return snapshot.exists() ? ({ id: snapshot.id, ...snapshot.data() } as LocationItem) : null;
+  } catch (err) {
+    console.error(`Failed to load location ${locationId} from Firebase:`, err);
+    throw err;
+  }
+}
+
 export async function loadInventoryFromFirebase(locationId?: string, allowAll = false): Promise<InventoryItem[] | null> {
   return loadCollectionFromFirebase<InventoryItem>(COLLECTION_INVENTORY, locationId, allowAll);
 }
@@ -486,16 +498,47 @@ export async function syncLocationsToFirebase(locations: LocationItem[]) {
 }
 
 // Listen for locations updates from Firestore
-export function listenToLocationsUpdates() {
+export function listenToLocationsUpdates(onError?: (error: unknown) => void) {
   if (typeof window === 'undefined') return;
   try {
-    unsubscribeLocations = onSnapshot(collection(db, COLLECTION_LOCATIONS), (snapshot) => {
-      const locations = snapshotToArray<LocationItem>(snapshot);
-      saveLocations(locations);
-      if (locationsUpdateCallback) locationsUpdateCallback(locations);
-    });
+    unsubscribeLocations = onSnapshot(
+      collection(db, COLLECTION_LOCATIONS),
+      (snapshot) => {
+        const locations = snapshotToArray<LocationItem>(snapshot);
+        saveLocations(locations);
+        if (locationsUpdateCallback) locationsUpdateCallback(locations);
+      },
+      (error) => {
+        console.error('Failed to listen to locations updates:', error);
+        onError?.(error);
+      },
+    );
   } catch (err) {
     console.error('Failed to listen to locations updates:', err);
+    onError?.(err);
+  }
+}
+
+export function listenToLocationUpdates(locationId: string, onError?: (error: unknown) => void) {
+  if (typeof window === 'undefined' || !locationId) return;
+  try {
+    unsubscribeLocations = onSnapshot(
+      doc(db, COLLECTION_LOCATIONS, locationId),
+      (snapshot) => {
+        const locations = snapshot.exists()
+          ? [{ id: snapshot.id, ...(snapshot.data() as object) } as LocationItem]
+          : [];
+        saveLocations(locations);
+        if (locationsUpdateCallback) locationsUpdateCallback(locations);
+      },
+      (error) => {
+        console.error(`Failed to listen to location ${locationId}:`, error);
+        onError?.(error);
+      },
+    );
+  } catch (err) {
+    console.error(`Failed to listen to location ${locationId}:`, err);
+    onError?.(err);
   }
 }
 

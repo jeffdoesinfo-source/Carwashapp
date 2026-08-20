@@ -42,6 +42,11 @@ export const createUser = functions.region('us-central1').https.onCall(async (da
     throw new functions.https.HttpsError('invalid-argument', 'Password must be at least 8 characters.');
   }
 
+  const locationSnap = await admin.firestore().doc(`locations/${String(locationId)}`).get();
+  if (!locationSnap.exists) {
+    throw new functions.https.HttpsError('invalid-argument', 'The selected Firebase location does not exist.');
+  }
+
   try {
     const userRecord = await admin.auth().createUser({
       email: normalizedEmail,

@@ -12,6 +12,9 @@ service cloud.firestore {
     function isSignedIn() { return request.auth != null; }
     function isAdmin() { return isSignedIn() && caller().role == 'Admin'; }
     function isManager() { return isSignedIn() && (caller().role == 'Manager' || caller().role == 'Admin'); }
+    function validLocationId(locId) {
+      return locId == '' || exists(/databases/$(database)/documents/locations/$(locId));
+    }
     function sameLocationAsCaller(locId) {
       return isAdmin() || (isSignedIn() && caller().locationId == locId);
     }
@@ -29,7 +32,7 @@ service cloud.firestore {
       // Updates: admin may update any user. A non-admin may update their own profile
       // but may not change protected properties (role, locationId, permissions, id).
       allow update: if isSignedIn() && (
-        isAdmin()
+        isAdmin() && validLocationId(request.resource.data.locationId)
         || (
           request.auth.uid == userId
           && request.resource.data.role == resource.data.role

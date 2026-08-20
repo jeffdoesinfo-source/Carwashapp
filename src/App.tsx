@@ -10,7 +10,6 @@ import {
   saveLocalUsers,
   loadLocalUsersAsync,
   saveLocalUsersAsync,
-  loadLocations,
   saveLocations,
   loadInventory,
   saveInventory,
@@ -26,6 +25,7 @@ import {
   saveNotifications,
   loadUsersFromFirebase,
   loadLocationsFromFirebase,
+  loadLocationFromFirebase,
   loadInventoryFromFirebase,
   loadSchedulesFromFirebase,
   loadCancelRequestsFromFirebase,
@@ -36,6 +36,7 @@ import {
   listenToCancelRequestsUpdates,
   listenToFraudChecksUpdates,
   listenToLocationsUpdates,
+  listenToLocationUpdates,
   setUsersUpdateCallback,
   setInventoryUpdateCallback,
   setSchedulesUpdateCallback,
@@ -80,11 +81,6 @@ const tabPermissionMap: Record<typeof tabs[number], Permission> = {
 };
 
 type Tab = typeof tabs[number];
-
-const localDefaultLocation: LocationItem = {
-  id: 'local-default-location',
-  name: 'Default Location',
-};
 
 const ALL_LOCATIONS_ID = 'all-locations';
 
@@ -132,6 +128,7 @@ function App() {
   const [actionMessage, setActionMessage] = useState('');
   const [usersLoaded, setUsersLoaded] = useState(false);
   const [locationsLoaded, setLocationsLoaded] = useState(false);
+  const [locationsError, setLocationsError] = useState('');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [defaultAdminSeeded, setDefaultAdminSeeded] = useState(false);
   const [scheduleViewMode, setScheduleViewMode] = useState<'mine' | 'all'>('mine');
@@ -288,16 +285,13 @@ function App() {
   useEffect(() => {
   const initializeApp = async () => {
     const localUsers = await loadLocalUsersAsync();
-    const localLocations = loadLocations();
     const localInventory = loadInventory();
     const localSchedules = loadSchedules();
     const localCancelRequests = loadCancelRequests();
     const localFraudChecks = loadFraudChecks();
 
-    const initialLocations = localLocations.length > 0 ? localLocations : [localDefaultLocation];
-
     setUsers(localUsers);
-    setLocations(initialLocations);
+    setLocations([]);
     setInventory(localInventory);
     setSchedules(localSchedules);
     setCancelRequests(localCancelRequests);
@@ -305,11 +299,12 @@ function App() {
     setHistory(loadHistory());
     setNotifications(loadNotifications());
     setUsersLoaded(true);
-    setLocationsLoaded(true);
+    setLocationsLoaded(false);
+    setLocationsError('');
 
     // Defer any remote reads/writes until after auth. Use local storage for initial state.
     setUsers(localUsers);
-    setLocations(initialLocations);
+    setLocations([]);
     setInventory(localInventory);
     setSchedules(localSchedules);
     setCancelRequests(localCancelRequests);
@@ -357,6 +352,9 @@ function App() {
   useEffect(() => {
     if (!currentUser) return;
 
+    setLocationsLoaded(false);
+    setLocationsError('');
+
     const isAdmin = currentUser.role === 'Admin';
     const locId = isAdmin && selectedLocationId === ALL_LOCATIONS_ID ? undefined : selectedLocationId || currentUser.locationId;
 
@@ -372,12 +370,22 @@ function App() {
         listenToUsersUpdates(true);
       }
 
-      // Locations (admin-only full list)
-      const remoteLocations = await loadLocationsFromFirebase();
-      if (remoteLocations) {
-        setLocations(remoteLocations);
-        saveLocations(remoteLocations);
+      // Locations are the source of truth for every selector and filter.
+      let resolvedLocations: LocationItem[];
+      if (isAdmin) {
+        const remoteLocations = await loadLocationsFromFirebase();
+        if (!remoteLocations) {
+          throw new Error('Firebase locations could not be loaded. Check your connection and permissions.');
+        }
+        resolvedLocations = remoteLocations;
+      } else {
+        const remoteLocation = await loadLocationFromFirebase(currentUser.locationId);
+        resolvedLocations = remoteLocation ? [remoteLocation] : [];
       }
+      setLocations(resolvedLocations);
+      saveLocations(resolvedLocations);
+      setLocationsLoaded(true);
+      setLocationsError('');
 
       // Inventory / schedules / cancel requests: location-scoped for non-admins
       const inv = await loadInventoryFromFirebase(isAdmin ? undefined : currentUser.locationId, isAdmin);
@@ -394,12 +402,24 @@ function App() {
       if (fraud) setFraudChecks(fraud);
 
       // Start listeners with correct scope
-      listenToLocationsUpdates();
+      const handleLocationListenerError = (error: unknown) => {
+        console.error('Firebase locations listener failed:', error);
+        setLocationsError('Live location updates stopped. Refresh the app or check Firebase permissions.');
+      };
+      if (isAdmin) {
+        listenToLocationsUpdates(handleLocationListenerError);
+      } else if (currentUser.locationId) {
+        listenToLocationUpdates(currentUser.locationId, handleLocationListenerError);
+      }
       listenToFraudChecksUpdates();
       listenToInventoryUpdates(isAdmin ? undefined : currentUser.locationId, undefined, isAdmin);
       listenToSchedulesUpdates(isAdmin ? undefined : currentUser.locationId, isAdmin);
       listenToCancelRequestsUpdates(isAdmin ? undefined : currentUser.locationId, isAdmin);
-    })();
+    })().catch((error) => {
+      console.error('Failed to load Firebase location data:', error);
+      setLocationsLoaded(true);
+      setLocationsError(error instanceof Error ? error.message : 'Firebase locations could not be loaded.');
+    });
 
     return () => {
       unsubscribeFromAllUpdates();
@@ -529,6 +549,8 @@ function App() {
   }, [locations, newUser.locationId]);
 
   const appLocation = locations.find((item) => item.id === appLocationId);
+  const hasValidLocationAssignment = currentUser?.role === 'Admin'
+    || Boolean(currentUser?.locationId && locations.some((location) => location.id === currentUser.locationId));
   const shiftSchedules = useMemo(() => visibleSchedules.filter((item) => item.type === 'Shift'), [visibleSchedules]);
   const choreSchedules = useMemo(() => visibleSchedules.filter((item) => item.type !== 'Shift'), [visibleSchedules]);
   const unreadNotifications = useMemo(() => {
@@ -876,7 +898,7 @@ const updatedCancelRequests = [...currentCancelRequests, newItem];
       return;
     }
 
-    if (normalizedPassword.length < 8) {
+    if (!editingUserId && normalizedPassword.length < 8) {
       setActionMessage('Please use a password with at least 8 characters.');
       return;
     }
@@ -1044,8 +1066,7 @@ const updatedCancelRequests = [...currentCancelRequests, newItem];
       lowInventoryThreshold: newLocationThreshold,
     };
 
-const currentLocations = loadLocations();
-const updatedLocations = [...currentLocations, newLocation];
+const updatedLocations = [...locations, newLocation];
 
 // Persist new location doc (admin only)
 await setDoc(doc(db, 'locations', newLocation.id), newLocation);
@@ -1190,10 +1211,10 @@ setSelectedLocationId(newLocation.id);
             onSelect={(t) => { setActiveTab(t as any); setIsMobileMenuOpen(false); }}
             currentUser={currentUser}
             locations={locations}
-            selectedLocationId={selectedLocationId}
+            selectedLocationId={selectedLocationId === ALL_LOCATIONS_ID ? '' : selectedLocationId}
             appLocation={appLocation}
             unreadCount={dashboardCounts.notifications}
-            onLocationChange={(id: string) => setSelectedLocationId(id)}
+            onLocationChange={(id: string) => setSelectedLocationId(id || ALL_LOCATIONS_ID)}
             onSignOut={signOut}
             onSettingsToggle={() => setShowSettings(!showSettings)}
           />
@@ -1201,6 +1222,16 @@ setSelectedLocationId(newLocation.id);
         
         {/* Main content */}
         <main className="main" style={{flex:1,overflow:'auto'}}>
+
+      {!locationsLoaded && (
+        <div className="alert">Loading locations from Firebase...</div>
+      )}
+      {locationsError && <div className="alert">{locationsError}</div>}
+      {locationsLoaded && !hasValidLocationAssignment && (
+        <div className="alert">
+          Your account is assigned to location ID <strong>{currentUser.locationId}</strong>, but that location no longer exists in Firebase. Contact an Admin to correct your assignment.
+        </div>
+      )}
 
       {activeTab === 'Dashboard' && (
         <>
@@ -2077,6 +2108,11 @@ setLocationThresholdEdits((prev) => {
                           onChange={(e) => handleUpdateUserLocation(user.id, e.target.value)}
                         >
                           <option value="">Unassigned</option>
+                          {user.locationId && !locations.some((loc) => loc.id === user.locationId) && (
+                            <option value={user.locationId}>
+                              Invalid assignment ({user.locationId})
+                            </option>
+                          )}
                           {locations.map((loc) => (
                             <option key={loc.id} value={loc.id}>{loc.name}</option>
                           ))}
