@@ -389,6 +389,8 @@ function App() {
   useEffect(() => {
     if (!currentUser) return;
 
+    let disposed = false;
+
     setLocationsLoaded(false);
     setLocationsError('');
 
@@ -399,6 +401,7 @@ function App() {
       // Users: only admin may load full users collection
       if (isAdmin) {
         const remoteUsers = await loadUsersFromFirebase(true);
+        if (disposed) return;
         if (remoteUsers) {
           setUsers(remoteUsers);
           saveLocalUsers(remoteUsers);
@@ -411,6 +414,7 @@ function App() {
       let resolvedLocations: LocationItem[];
       if (isAdmin) {
         const remoteLocations = await loadLocationsFromFirebase();
+        if (disposed) return;
         if (!remoteLocations) {
           throw new Error('Firebase locations could not be loaded. Check your connection and permissions.');
         }
@@ -418,6 +422,7 @@ function App() {
       } else {
           const assignedLocationIds = getAssignedLocationIds(currentUser);
           const remoteLocations = await loadLocationsByIdsFromFirebase(assignedLocationIds);
+          if (disposed) return;
           resolvedLocations = remoteLocations || [];
       }
       setLocations(resolvedLocations);
@@ -427,16 +432,20 @@ function App() {
 
       // Inventory / schedules / cancel requests: location-scoped for non-admins
       const inv = await loadInventoryFromFirebase(isAdmin ? undefined : appLocationId, isAdmin);
+      if (disposed) return;
       if (inv) setInventory(inv);
 
       const sch = await loadSchedulesFromFirebase(isAdmin ? undefined : appLocationId, isAdmin);
+      if (disposed) return;
       if (sch) setSchedules(sch);
 
       const canc = await loadCancelRequestsFromFirebase(isAdmin ? undefined : appLocationId, isAdmin);
+      if (disposed) return;
       if (canc) setCancelRequests(canc);
 
       // Fraud is global
       const fraud = await loadFraudChecksFromFirebase();
+      if (disposed) return;
       if (fraud) setFraudChecks(fraud);
 
       // Start listeners with correct scope
@@ -444,6 +453,7 @@ function App() {
         console.error('Firebase locations listener failed:', error);
         setLocationsError('Live location updates stopped. Refresh the app or check Firebase permissions.');
       };
+      if (disposed) return;
       if (isAdmin) {
         listenToLocationsUpdates(handleLocationListenerError);
       } else if (appLocationId) {
@@ -468,6 +478,7 @@ function App() {
     });
 
     return () => {
+      disposed = true;
       unsubscribeFromAllUpdates();
     };
   }, [currentUser, selectedLocationId, appLocationId]);
