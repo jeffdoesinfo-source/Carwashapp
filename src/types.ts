@@ -6,6 +6,7 @@ export interface User {
   username: string;
   role: Role;
   locationId: string;
+  locationIds?: string[];
   permissions?: Permission[];
 }
 

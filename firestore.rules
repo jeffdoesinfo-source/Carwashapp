@@ -16,7 +16,14 @@ service cloud.firestore {
       return locId == '' || exists(/databases/$(database)/documents/locations/$(locId));
     }
     function sameLocationAsCaller(locId) {
-      return isAdmin() || (isSignedIn() && caller().locationId == locId);
+      return isAdmin() || (isSignedIn() && (
+        caller().locationId == locId
+        || (caller().locationIds != null && caller().locationIds.hasAny([locId]))
+      ));
+    }
+    function queryMatchesCallerLocation() {
+      return request.query.where('locationId') == caller().locationId
+        || (caller().locationIds != null && caller().locationIds.hasAny([request.query.where('locationId')]));
     }
 
     // 1) Users collection
@@ -56,7 +63,7 @@ service cloud.firestore {
       // `.where('locationId', '==', caller.locationId)` ), otherwise Firestore will reject
       // the query because it cannot be satisfied securely.
       allow list: if isSignedIn() && (
-        isAdmin() || (request.query.where('locationId') == caller().locationId)
+        isAdmin() || queryMatchesCallerLocation()
       );
 
       // Writes only by Admins or Managers and restricted to their location
@@ -76,7 +83,7 @@ service cloud.firestore {
       );
 
       allow list: if isSignedIn() && (
-        isAdmin() || (request.query.where('locationId') == caller().locationId)
+        isAdmin() || queryMatchesCallerLocation()
       );
 
       allow create, update, delete: if isSignedIn() && (
@@ -95,7 +102,7 @@ service cloud.firestore {
       );
 
       allow list: if isSignedIn() && (
-        isAdmin() || (request.query.where('locationId') == caller().locationId)
+        isAdmin() || queryMatchesCallerLocation()
       );
 
       allow create, update, delete: if isSignedIn() && (

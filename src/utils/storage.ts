@@ -369,6 +369,17 @@ export async function loadLocationFromFirebase(locationId: string): Promise<Loca
   }
 }
 
+export async function loadLocationsByIdsFromFirebase(locationIds: string[]): Promise<LocationItem[] | null> {
+  if (typeof window === 'undefined') return null;
+  try {
+    const loaded = await Promise.all(locationIds.filter(Boolean).map((locationId) => loadLocationFromFirebase(locationId)));
+    return loaded.filter((location): location is LocationItem => Boolean(location));
+  } catch (err) {
+    console.error('Failed to load assigned locations from Firebase:', err);
+    return null;
+  }
+}
+
 export async function loadInventoryFromFirebase(locationId?: string, allowAll = false): Promise<InventoryItem[] | null> {
   return loadCollectionFromFirebase<InventoryItem>(COLLECTION_INVENTORY, locationId, allowAll);
 }

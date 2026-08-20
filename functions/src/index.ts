@@ -25,10 +25,14 @@ export const createUser = functions.region('us-central1').https.onCall(async (da
     throw new functions.https.HttpsError('permission-denied', 'Caller must be an Admin.');
   }
 
-  const { email, password, username, role, locationId, permissions } = data || {};
+  const { email, password, username, role, locationId, locationIds, permissions } = data || {};
   const normalizedEmail = String(email || '').trim();
   const normalizedPassword = String(password || '');
   const normalizedUsername = String(username || '').trim();
+  const normalizedLocationIds = Array.from(new Set([
+    String(locationId || '').trim(),
+    ...(Array.isArray(locationIds) ? locationIds.map((id: unknown) => String(id).trim()) : []),
+  ].filter(Boolean)));
 
   if (!normalizedEmail || !normalizedPassword || !role || !locationId) {
     throw new functions.https.HttpsError('invalid-argument', 'Missing required user creation fields.');
@@ -42,9 +46,9 @@ export const createUser = functions.region('us-central1').https.onCall(async (da
     throw new functions.https.HttpsError('invalid-argument', 'Password must be at least 8 characters.');
   }
 
-  const locationSnap = await admin.firestore().doc(`locations/${String(locationId)}`).get();
-  if (!locationSnap.exists) {
-    throw new functions.https.HttpsError('invalid-argument', 'The selected Firebase location does not exist.');
+  const locationSnaps = await Promise.all(normalizedLocationIds.map((id) => admin.firestore().doc(`locations/${id}`).get()));
+  if (locationSnaps.some((snapshot) => !snapshot.exists)) {
+    throw new functions.https.HttpsError('invalid-argument', 'One or more selected Firebase locations do not exist.');
   }
 
   try {
@@ -61,6 +65,7 @@ export const createUser = functions.region('us-central1').https.onCall(async (da
       username: normalizedUsername,
       role: String(role),
       locationId: String(locationId),
+      locationIds: String(role) === 'Manager' ? normalizedLocationIds : [],
       permissions: permissions || [],
     };
 

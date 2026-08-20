@@ -30,7 +30,7 @@ export default function Sidebar({ tabs, activeTab, onSelect, currentUser, locati
         </div>
       )}
 
-      {locations.length > 0 && currentUser?.role === 'Admin' && (
+      {locations.length > 0 && (currentUser?.role === 'Admin' || (currentUser?.role === 'Manager' && locations.length > 1)) && (
         <div style={{marginTop:12}}>
           <label style={{fontSize:11,color:'var(--muted-text)',display:'block',marginBottom:4}}>Switch location</label>
           <select 

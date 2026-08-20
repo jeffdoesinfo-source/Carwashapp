@@ -25,7 +25,7 @@ import {
   saveNotifications,
   loadUsersFromFirebase,
   loadLocationsFromFirebase,
-  loadLocationFromFirebase,
+  loadLocationsByIdsFromFirebase,
   loadInventoryFromFirebase,
   loadSchedulesFromFirebase,
   loadCancelRequestsFromFirebase,
@@ -106,6 +106,11 @@ const getDefaultPermissions = (role: Role): Permission[] => {
 
 const getPermissionsForUser = (user: User): Permission[] => getDefaultPermissions(user.role);
 
+const getAssignedLocationIds = (user: User): string[] => Array.from(new Set([
+  user.locationId,
+  ...(user.role === 'Manager' ? user.locationIds || [] : []),
+].filter(Boolean)));
+
 const hasPermission = (user: User, permission: Permission): boolean => getPermissionsForUser(user).includes(permission);
 
 function App() {
@@ -150,7 +155,8 @@ function App() {
     if (currentUser.role === 'Admin') {
       return selectedLocationId === ALL_LOCATIONS_ID ? '' : selectedLocationId || currentUser.locationId;
     }
-    return currentUser.locationId;
+    const assignedLocationIds = getAssignedLocationIds(currentUser);
+    return assignedLocationIds.includes(selectedLocationId) ? selectedLocationId : assignedLocationIds[0] || '';
   }, [currentUser, selectedLocationId]);
 
   useEffect(() => {
@@ -180,6 +186,9 @@ function App() {
       if (selectedLocationId === ALL_LOCATIONS_ID) {
         return schedules;
       }
+      return schedules.filter((item) => item.locationId === appLocationId);
+    }
+    if (currentUser.role === 'Manager') {
       return schedules.filter((item) => item.locationId === appLocationId);
     }
     return schedules.filter(
@@ -345,7 +354,10 @@ function App() {
     }
 
     if (currentUser.role !== 'Admin') {
-      setSelectedLocationId(currentUser.locationId || '');
+      const assignedLocationIds = getAssignedLocationIds(currentUser);
+      if (!assignedLocationIds.includes(selectedLocationId)) {
+        setSelectedLocationId(assignedLocationIds[0] || '');
+      }
       return;
     }
 
@@ -386,8 +398,9 @@ function App() {
         }
         resolvedLocations = remoteLocations;
       } else {
-        const remoteLocation = await loadLocationFromFirebase(currentUser.locationId);
-        resolvedLocations = remoteLocation ? [remoteLocation] : [];
+          const assignedLocationIds = getAssignedLocationIds(currentUser);
+          const remoteLocations = await loadLocationsByIdsFromFirebase(assignedLocationIds);
+          resolvedLocations = remoteLocations || [];
       }
       setLocations(resolvedLocations);
       saveLocations(resolvedLocations);
@@ -395,13 +408,13 @@ function App() {
       setLocationsError('');
 
       // Inventory / schedules / cancel requests: location-scoped for non-admins
-      const inv = await loadInventoryFromFirebase(isAdmin ? undefined : currentUser.locationId, isAdmin);
+      const inv = await loadInventoryFromFirebase(isAdmin ? undefined : appLocationId, isAdmin);
       if (inv) setInventory(inv);
 
-      const sch = await loadSchedulesFromFirebase(isAdmin ? undefined : currentUser.locationId, isAdmin);
+      const sch = await loadSchedulesFromFirebase(isAdmin ? undefined : appLocationId, isAdmin);
       if (sch) setSchedules(sch);
 
-      const canc = await loadCancelRequestsFromFirebase(isAdmin ? undefined : currentUser.locationId, isAdmin);
+      const canc = await loadCancelRequestsFromFirebase(isAdmin ? undefined : appLocationId, isAdmin);
       if (canc) setCancelRequests(canc);
 
       // Fraud is global
@@ -415,13 +428,13 @@ function App() {
       };
       if (isAdmin) {
         listenToLocationsUpdates(handleLocationListenerError);
-      } else if (currentUser.locationId) {
-        listenToLocationUpdates(currentUser.locationId, handleLocationListenerError);
+      } else if (appLocationId) {
+        listenToLocationUpdates(appLocationId, handleLocationListenerError);
       }
       listenToFraudChecksUpdates();
-      listenToInventoryUpdates(isAdmin ? undefined : currentUser.locationId, undefined, isAdmin);
-      listenToSchedulesUpdates(isAdmin ? undefined : currentUser.locationId, isAdmin);
-      listenToCancelRequestsUpdates(isAdmin ? undefined : currentUser.locationId, isAdmin);
+      listenToInventoryUpdates(isAdmin ? undefined : appLocationId, undefined, isAdmin);
+      listenToSchedulesUpdates(isAdmin ? undefined : appLocationId, isAdmin);
+      listenToCancelRequestsUpdates(isAdmin ? undefined : appLocationId, isAdmin);
     })().catch((error) => {
       console.error('Failed to load Firebase location data:', error);
       setLocationsLoaded(true);
@@ -431,7 +444,7 @@ function App() {
     return () => {
       unsubscribeFromAllUpdates();
     };
-  }, [currentUser, selectedLocationId]);
+  }, [currentUser, selectedLocationId, appLocationId]);
 
   function createHistoryEntry(label: string, details: string, locationId: string) {
     const newEntry: HistoryEntry = {
@@ -543,7 +556,7 @@ function App() {
   const [newInventory, setNewInventory] = useState({ name: '', quantity: 0, lowInventoryThreshold: 0, notes: '' });
   const [newCancel, setNewCancel] = useState({ customerName: '', licensePlate: '', reason: '' });
   const [newFraud, setNewFraud] = useState({ customerName: '', licensePlate: '', location: '', note: '' });
-  const [newUser, setNewUser] = useState({ username: '', email: '', password: '', role: 'Crew' as Role, locationId: '', permissions: getDefaultPermissions('Crew') });
+  const [newUser, setNewUser] = useState({ username: '', email: '', password: '', role: 'Crew' as Role, locationId: '', locationIds: [] as string[], permissions: getDefaultPermissions('Crew') });
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [newLocationName, setNewLocationName] = useState('');
   const [newLocationThreshold, setNewLocationThreshold] = useState(5);
@@ -915,7 +928,7 @@ const updatedCancelRequests = [...currentCancelRequests, newItem];
         // Update Firestore user profile (no passwords stored)
         const updated = users.map((user) =>
           user.id === editingUserId
-            ? { ...user, username: newUser.username.trim(), role: newUser.role, locationId: newUser.locationId, permissions: newUser.permissions }
+            ? { ...user, username: newUser.username.trim(), role: newUser.role, locationId: newUser.locationId, locationIds: newUser.role === 'Manager' ? newUser.locationIds : [], permissions: newUser.permissions }
             : user,
         );
 
@@ -924,6 +937,7 @@ const updatedCancelRequests = [...currentCancelRequests, newItem];
           username: newUser.username.trim(),
           role: newUser.role,
           locationId: newUser.locationId,
+          locationIds: newUser.role === 'Manager' ? newUser.locationIds : [],
           permissions: newUser.permissions,
         }, { merge: true });
 
@@ -949,6 +963,7 @@ const updatedCancelRequests = [...currentCancelRequests, newItem];
             username: newUser.username.trim() || undefined,
             role: newUser.role,
             locationId: newUser.locationId,
+            locationIds: newUser.role === 'Manager' ? newUser.locationIds : [],
             permissions: newUser.permissions,
           })) as any;
 
@@ -973,7 +988,7 @@ const updatedCancelRequests = [...currentCancelRequests, newItem];
     }
 
     setEditingUserId(null);
-    setNewUser({ username: '', email: '', password: '', role: 'Crew', locationId: locations[0]?.id || '', permissions: getDefaultPermissions('Crew') });
+    setNewUser({ username: '', email: '', password: '', role: 'Crew', locationId: locations[0]?.id || '', locationIds: [], permissions: getDefaultPermissions('Crew') });
   };
 
   const handleCompleteUsernameSetup = async () => {
@@ -1061,12 +1076,33 @@ const updatedCancelRequests = [...currentCancelRequests, newItem];
       await deleteDoc(doc(db, 'locations', locationId));
 
       // Unassign users assigned to this location
-      const updatedUsers = users.map((u) => (u.locationId === locationId ? { ...u, locationId: '' } : u));
+      const updatedUsers = users.map((u) => {
+        if (u.role !== 'Manager') {
+          return u.locationId === locationId ? { ...u, locationId: '' } : u;
+        }
+        const remainingLocationIds = getAssignedLocationIds(u).filter((id) => id !== locationId);
+        return u.locationId === locationId || u.locationIds?.includes(locationId)
+          ? { ...u, locationId: remainingLocationIds[0] || '', locationIds: remainingLocationIds }
+          : u;
+      });
       for (const u of users.filter(us => us.locationId === locationId)) {
         try {
-          await setDoc(doc(db, 'users', u.id), { locationId: '' }, { merge: true });
+          const updatedUser = updatedUsers.find((candidate) => candidate.id === u.id);
+          await setDoc(doc(db, 'users', u.id), {
+            locationId: updatedUser?.locationId || '',
+            locationIds: updatedUser?.locationIds || [],
+          }, { merge: true });
         } catch (e) {
           console.warn('Failed to unassign user', u.id, e);
+        }
+      }
+      for (const u of users.filter((us) => us.role === 'Manager' && us.locationIds?.includes(locationId) && us.locationId !== locationId)) {
+        const updatedUser = updatedUsers.find((candidate) => candidate.id === u.id);
+        if (updatedUser) {
+          await setDoc(doc(db, 'users', u.id), {
+            locationId: updatedUser.locationId,
+            locationIds: updatedUser.locationIds || [],
+          }, { merge: true });
         }
       }
 
@@ -1093,6 +1129,7 @@ const updatedCancelRequests = [...currentCancelRequests, newItem];
       password: '',
       role: user.role,
       locationId: user.locationId,
+      locationIds: user.role === 'Manager' ? getAssignedLocationIds(user) : [],
       permissions: user.permissions ?? getDefaultPermissions(user.role),
     });
     setActionMessage('Editing existing user. Update the fields and save.');
@@ -1100,7 +1137,7 @@ const updatedCancelRequests = [...currentCancelRequests, newItem];
 
   const handleCancelEditUser = () => {
     setEditingUserId(null);
-    setNewUser({ username: '', email: '', password: '', role: 'Crew', locationId: locations[0]?.id || '', permissions: getDefaultPermissions('Crew') });
+    setNewUser({ username: '', email: '', password: '', role: 'Crew', locationId: locations[0]?.id || '', locationIds: [], permissions: getDefaultPermissions('Crew') });
     setActionMessage('');
   };
 
@@ -2068,6 +2105,7 @@ setSelectedLocationId(newLocation.id);
                     setNewUser({
                       ...newUser,
                       role,
+                      locationIds: role === 'Manager' ? (newUser.locationId ? [newUser.locationId] : []) : [],
                       permissions: getDefaultPermissions(role),
                     });
                   }}
@@ -2079,7 +2117,16 @@ setSelectedLocationId(newLocation.id);
               </label>
               <label>
                 Location
-                <select value={newUser.locationId} onChange={(event) => setNewUser({ ...newUser, locationId: event.target.value })}>
+                <select value={newUser.locationId} onChange={(event) => {
+                  const locationId = event.target.value;
+                  setNewUser({
+                    ...newUser,
+                    locationId,
+                    locationIds: newUser.role === 'Manager' && locationId && !newUser.locationIds.includes(locationId)
+                      ? [...newUser.locationIds, locationId]
+                      : newUser.locationIds,
+                  });
+                }}>
                   <option value="">Select location</option>
                   {locations.map((location) => (
                     <option key={location.id} value={location.id}>
@@ -2088,6 +2135,30 @@ setSelectedLocationId(newLocation.id);
                   ))}
                 </select>
               </label>
+              {newUser.role === 'Manager' && (
+                <fieldset style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: 12 }}>
+                  <legend>Manager locations</legend>
+                  {locations.map((location) => (
+                    <label key={location.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input
+                        type="checkbox"
+                        checked={newUser.locationIds.includes(location.id)}
+                        onChange={(event) => {
+                          const selected = event.target.checked
+                            ? Array.from(new Set([...newUser.locationIds, location.id]))
+                            : newUser.locationIds.filter((id) => id !== location.id);
+                          setNewUser({
+                            ...newUser,
+                            locationIds: selected,
+                            locationId: selected.includes(newUser.locationId) ? newUser.locationId : selected[0] || '',
+                          });
+                        }}
+                      />
+                      {location.name}
+                    </label>
+                  ))}
+                </fieldset>
+              )}
             </div>
             <div className="section-card">
               <h3>Permissions</h3>
@@ -2191,7 +2262,7 @@ setLocationThresholdEdits((prev) => {
                     <td>{user.username}</td>
                     <td>{user.role}</td>
                     <td>
-                      {currentUser.role === 'Admin' ? (
+                      {currentUser.role === 'Admin' && user.role !== 'Manager' ? (
                         <select
                           value={user.locationId || ''}
                           onChange={(e) => handleUpdateUserLocation(user.id, e.target.value)}
@@ -2207,7 +2278,9 @@ setLocationThresholdEdits((prev) => {
                           ))}
                         </select>
                       ) : (
-                        locations.find((loc) => loc.id === user.locationId)?.name || 'Unknown'
+                        (user.role === 'Manager' ? getAssignedLocationIds(user) : [user.locationId])
+                          .map((id) => locations.find((loc) => loc.id === id)?.name || `Invalid (${id})`)
+                          .join(', ') || 'Unassigned'
                       )}
                     </td>
                     <td>{getPermissionsForUser(user).join(', ')}</td>
