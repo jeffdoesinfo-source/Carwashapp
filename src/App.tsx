@@ -124,6 +124,8 @@ function App() {
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
+  const [usernameSetup, setUsernameSetup] = useState('');
+  const [usernameSetupError, setUsernameSetupError] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
   const [actionMessage, setActionMessage] = useState('');
   const [usersLoaded, setUsersLoaded] = useState(false);
@@ -264,12 +266,17 @@ function App() {
     const unsub = onAuthStateChanged(auth, async (fbUser) => {
       if (!fbUser) {
         setCurrentUser(null);
+        setUsernameSetup('');
+        setUsernameSetupError('');
         return;
       }
       try {
         const snap = await getDoc(doc(db, 'users', fbUser.uid));
         if (snap.exists()) {
-          setCurrentUser(snap.data() as User);
+          const profile = snap.data() as User;
+          setCurrentUser(profile);
+          setUsernameSetup(profile.username || '');
+          setUsernameSetupError('');
         } else {
           setCurrentUser(null);
         }
@@ -887,7 +894,7 @@ const updatedCancelRequests = [...currentCancelRequests, newItem];
   };
 
   const handleCreateUser = async () => {
-    if (!currentUser || currentUser.role !== 'Admin' || !newUser.username || !newUser.locationId) return;
+    if (!currentUser || currentUser.role !== 'Admin' || !newUser.locationId) return;
     setActionMessage('');
 
     const normalizedEmail = newUser.email.trim();
@@ -939,7 +946,7 @@ const updatedCancelRequests = [...currentCancelRequests, newItem];
           const result = (await createUserFn({
             email: normalizedEmail,
             password: normalizedPassword,
-            username: newUser.username.trim(),
+            username: newUser.username.trim() || undefined,
             role: newUser.role,
             locationId: newUser.locationId,
             permissions: newUser.permissions,
@@ -952,8 +959,8 @@ const updatedCancelRequests = [...currentCancelRequests, newItem];
           saveLocalUsers(updated);
           await saveLocalUsersAsync(updated);
 
-          createHistoryEntry('User created', `${newUser.username} as ${newUser.role}`, newUser.locationId);
-          setActionMessage('New user account created.');
+          createHistoryEntry('User created', `${newUser.username.trim() || 'Username pending'} as ${newUser.role}`, newUser.locationId);
+          setActionMessage(newUser.username.trim() ? 'New user account created.' : 'Account created. The user will choose a username on first login.');
         } catch (err: any) {
           console.error('createUser function failed', err);
           const details = err?.message || 'Failed to create user via Cloud Function';
@@ -967,6 +974,32 @@ const updatedCancelRequests = [...currentCancelRequests, newItem];
 
     setEditingUserId(null);
     setNewUser({ username: '', email: '', password: '', role: 'Crew', locationId: locations[0]?.id || '', permissions: getDefaultPermissions('Crew') });
+  };
+
+  const handleCompleteUsernameSetup = async () => {
+    const username = usernameSetup.trim();
+    const userId = auth.currentUser?.uid || currentUser?.id;
+    if (!currentUser || !userId) return;
+    if (username.length < 2) {
+      setUsernameSetupError('Username must be at least 2 characters.');
+      return;
+    }
+
+    try {
+      await setDoc(doc(db, 'users', userId), { username }, { merge: true });
+      const updatedUser = { ...currentUser, username };
+      setCurrentUser(updatedUser);
+      setUsers((existingUsers) => {
+        const updatedUsers = existingUsers.map((user) => user.id === userId ? updatedUser : user);
+        saveLocalUsers(updatedUsers);
+        void saveLocalUsersAsync(updatedUsers);
+        return updatedUsers;
+      });
+      setUsernameSetupError('');
+    } catch (err) {
+      console.error('Failed to save first-login username:', err);
+      setUsernameSetupError('Unable to save your username. Please try again.');
+    }
   };
 
   const handleDeleteUser = async (userId: string) => {
@@ -1165,6 +1198,40 @@ setSelectedLocationId(newLocation.id);
           <div className="alert" style={{ marginTop: 20 }}>
             Use admin account to create users and locations. Fill Firebase config in <code>src/firebase.ts</code> before use.
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser.username?.trim()) {
+    return (
+      <div className="app-shell">
+        <div className="header">
+          <div>
+            <h1>Choose your username</h1>
+            <p>{auth.currentUser?.email || 'Your Firebase account'}</p>
+          </div>
+        </div>
+        <div className="form-card">
+          <p>Your Admin assigned your account to a location. Choose the username your coworkers will see in schedules and chores.</p>
+          <div className="field-group">
+            <label>
+              Username
+              <input
+                autoFocus
+                value={usernameSetup}
+                onChange={(event) => setUsernameSetup(event.target.value)}
+                autoComplete="username"
+              />
+            </label>
+          </div>
+          {usernameSetupError && <div className="alert">{usernameSetupError}</div>}
+          <button className="primary" onClick={handleCompleteUsernameSetup}>
+            Continue
+          </button>
+          <button className="secondary" onClick={() => void firebaseSignOut(auth)} style={{ marginLeft: 8 }}>
+            Sign out
+          </button>
         </div>
       </div>
     );
@@ -1959,7 +2026,7 @@ setSelectedLocationId(newLocation.id);
             <h2>Create user</h2>
             <div className="field-group">
               <label>
-                Username
+                Username (optional; user can choose it on first login)
                 <input value={newUser.username} onChange={(event) => setNewUser({ ...newUser, username: event.target.value })} />
               </label>
               <label>

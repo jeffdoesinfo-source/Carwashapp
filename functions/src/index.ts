@@ -30,7 +30,7 @@ export const createUser = functions.region('us-central1').https.onCall(async (da
   const normalizedPassword = String(password || '');
   const normalizedUsername = String(username || '').trim();
 
-  if (!normalizedEmail || !normalizedPassword || !normalizedUsername || !role || !locationId) {
+  if (!normalizedEmail || !normalizedPassword || !role || !locationId) {
     throw new functions.https.HttpsError('invalid-argument', 'Missing required user creation fields.');
   }
 
@@ -51,7 +51,7 @@ export const createUser = functions.region('us-central1').https.onCall(async (da
     const userRecord = await admin.auth().createUser({
       email: normalizedEmail,
       password: normalizedPassword,
-      displayName: normalizedUsername,
+      ...(normalizedUsername ? { displayName: normalizedUsername } : {}),
       emailVerified: false,
     });
 
