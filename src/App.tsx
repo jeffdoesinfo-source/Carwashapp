@@ -1012,10 +1012,24 @@ const updatedCancelRequests = [...currentCancelRequests, newItem];
     if (!userToDelete) return;
     if (!window.confirm(`Delete user ${userToDelete.username}? This action cannot be undone.`)) return;
 
-   const updatedUsers = users.filter((user) => user.id !== userId);
+    try {
+      const functions = getFunctions();
+      const deleteUserFn = httpsCallable(functions, 'deleteUser');
+      await deleteUserFn({ uid: userId });
 
-    // Deleting users must be performed server-side via an Admin Cloud Function.
-    setActionMessage('User deletion must be performed via the Admin Cloud Function.');
+      const updatedUsers = users.filter((user) => user.id !== userId);
+      setUsers(updatedUsers);
+      saveLocalUsers(updatedUsers);
+      await saveLocalUsersAsync(updatedUsers);
+      if (editingUserId === userId) {
+        handleCancelEditUser();
+      }
+      createHistoryEntry('User deleted', userToDelete.username || userToDelete.id, userToDelete.locationId || '');
+      setActionMessage('User account deleted.');
+    } catch (err: any) {
+      console.error('User deletion failed:', err);
+      setActionMessage(err?.message || 'Failed to delete user account.');
+    }
   };
 
   const handleUpdateUserLocation = async (userId: string, locationId: string) => {
