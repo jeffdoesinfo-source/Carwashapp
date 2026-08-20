@@ -21,11 +21,6 @@ service cloud.firestore {
         || (caller().locationIds != null && caller().locationIds.hasAny([locId]))
       ));
     }
-    function queryMatchesCallerLocation() {
-      return request.query.where('locationId') == caller().locationId
-        || (caller().locationIds != null && caller().locationIds.hasAny([request.query.where('locationId')]));
-    }
-
     // 1) Users collection
     match /users/{userId} {
       // Reading
@@ -60,11 +55,9 @@ service cloud.firestore {
         isAdmin() || sameLocationAsCaller(resource.data.locationId)
       );
 
-      // Allow queries only when caller filters by locationId (client should include
-      // `.where('locationId', '==', caller.locationId)` ), otherwise Firestore will reject
-      // the query because it cannot be satisfied securely.
+      // Query authorization is evaluated against each returned document's locationId.
       allow list: if isSignedIn() && (
-        isAdmin() || queryMatchesCallerLocation()
+        isAdmin() || sameLocationAsCaller(resource.data.locationId)
       );
 
       // Writes only by Admins or Managers and restricted to their location
@@ -84,7 +77,7 @@ service cloud.firestore {
       );
 
       allow list: if isSignedIn() && (
-        isAdmin() || queryMatchesCallerLocation()
+        isAdmin() || sameLocationAsCaller(resource.data.locationId)
       );
 
       allow create, update, delete: if isSignedIn() && (
@@ -103,7 +96,7 @@ service cloud.firestore {
       );
 
       allow list: if isSignedIn() && (
-        isAdmin() || queryMatchesCallerLocation()
+        isAdmin() || sameLocationAsCaller(resource.data.locationId)
       );
 
       allow create, update, delete: if isSignedIn() && (

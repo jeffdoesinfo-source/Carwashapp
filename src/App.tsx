@@ -792,14 +792,16 @@ function App() {
     const currentInventory = inventory;
     const updatedInventory = [...currentInventory, newItem];
 
-    // Create inventory item document
-    await setDoc(doc(db, 'inventory', newItem.id), newItem);
-
-    saveInventory(updatedInventory);
-    setInventory(updatedInventory);
-
-    createHistoryEntry('Inventory added', `${newInventory.name} x${newInventory.quantity}`, appLocationId);
-    setNewInventory({ name: '', quantity: 0, lowInventoryThreshold: 0, notes: '' });
+    try {
+      await setDoc(doc(db, 'inventory', newItem.id), newItem);
+      saveInventory(updatedInventory);
+      setInventory(updatedInventory);
+      createHistoryEntry('Inventory added', `${newInventory.name} x${newInventory.quantity}`, appLocationId);
+      setNewInventory({ name: '', quantity: 0, lowInventoryThreshold: 0, notes: '' });
+    } catch (err: any) {
+      console.error('Inventory add failed:', err);
+      setActionMessage(err?.message || 'Unable to add inventory. Check your location assignment and Firebase rules.');
+    }
   };
 
  const handleDeleteInventory = async (itemId: string) => {
@@ -856,19 +858,22 @@ function App() {
     );
     // Persist just the changed item to Firestore
     const changedItem = updatedInventory.find((item) => item.id === itemId);
-    if (changedItem) {
-      await setDoc(doc(db, 'inventory', changedItem.id), changedItem, { merge: true });
-    }
-
-    saveInventory(updatedInventory);
-    setInventory(updatedInventory);
-
-    if (changedItem) {
-      createHistoryEntry(
-        'Inventory updated',
-        `${changedItem.name} quantity ${delta >= 0 ? 'increased' : 'decreased'} by ${Math.abs(delta)} to ${changedItem.quantity}`,
-        appLocationId,
-      );
+    try {
+      if (changedItem) {
+        await setDoc(doc(db, 'inventory', changedItem.id), changedItem, { merge: true });
+      }
+      saveInventory(updatedInventory);
+      setInventory(updatedInventory);
+      if (changedItem) {
+        createHistoryEntry(
+          'Inventory updated',
+          `${changedItem.name} quantity ${delta >= 0 ? 'increased' : 'decreased'} by ${Math.abs(delta)} to ${changedItem.quantity}`,
+          appLocationId,
+        );
+      }
+    } catch (err: any) {
+      console.error('Inventory update failed:', err);
+      setActionMessage(err?.message || 'Unable to update inventory. Check Firebase permissions.');
     }
   };
 
