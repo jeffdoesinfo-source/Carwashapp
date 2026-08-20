@@ -406,7 +406,12 @@ export async function syncInventoryToFirebase(inventory: InventoryItem[]) {
 // Listen for inventory updates from Firestore
 // Listen for inventory updates. Non-admin callers MUST provide `locationId`.
 // Admins may pass `allowAll=true` to receive all inventory.
-export function listenToInventoryUpdates(locationId?: string, callback?: (inventory: InventoryItem[]) => void, allowAll = false) {
+export function listenToInventoryUpdates(
+  locationId?: string,
+  callback?: (inventory: InventoryItem[]) => void,
+  allowAll = false,
+  onError?: (error: unknown) => void,
+) {
   if (typeof window === 'undefined') return () => {};
   if (!allowAll && !locationId) {
     console.warn('listenToInventoryUpdates requires locationId for non-admin callers; skipping listener.');
@@ -415,19 +420,27 @@ export function listenToInventoryUpdates(locationId?: string, callback?: (invent
 
   try {
     const ref = allowAll ? collection(db, COLLECTION_INVENTORY) : query(collection(db, COLLECTION_INVENTORY), where('locationId', '==', locationId));
-    unsubscribeInventory = onSnapshot(ref, (snapshot) => {
-      const inventory = snapshotToArray<InventoryItem>(snapshot);
-      saveInventory(inventory);
-      if (callback) {
-        callback(inventory);
-      } else if (inventoryUpdateCallback) {
-        inventoryUpdateCallback(inventory);
-      }
-    });
+    unsubscribeInventory = onSnapshot(
+      ref,
+      (snapshot) => {
+        const inventory = snapshotToArray<InventoryItem>(snapshot);
+        saveInventory(inventory);
+        if (callback) {
+          callback(inventory);
+        } else if (inventoryUpdateCallback) {
+          inventoryUpdateCallback(inventory);
+        }
+      },
+      (error) => {
+        console.error('Inventory listener failed:', error);
+        onError?.(error);
+      },
+    );
 
     return unsubscribeInventory;
   } catch (err) {
     console.error('Failed to listen to inventory updates:', err);
+    onError?.(err);
     return () => {};
   }
 }

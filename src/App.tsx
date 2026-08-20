@@ -450,7 +450,15 @@ function App() {
         listenToLocationUpdates(appLocationId, handleLocationListenerError);
       }
       listenToFraudChecksUpdates();
-      listenToInventoryUpdates(isAdmin ? undefined : appLocationId, undefined, isAdmin);
+      listenToInventoryUpdates(
+        isAdmin ? undefined : appLocationId,
+        setInventory,
+        isAdmin,
+        (error) => {
+          console.error('Inventory live updates failed:', error);
+          setActionMessage('Inventory live updates are unavailable. Check Firebase permissions and refresh.');
+        },
+      );
       listenToSchedulesUpdates(isAdmin ? undefined : appLocationId, isAdmin);
       listenToCancelRequestsUpdates(isAdmin ? undefined : appLocationId, isAdmin);
     })().catch((error) => {
