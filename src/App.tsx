@@ -778,7 +778,7 @@ function App() {
       locationId: appLocationId,
     };
 
-    const currentInventory = loadInventory();
+    const currentInventory = inventory;
     const updatedInventory = [...currentInventory, newItem];
 
     // Create inventory item document
@@ -827,10 +827,20 @@ function App() {
 
   const handleAdjustInventory = async (itemId: string, delta: number) => {
     if (!currentUser || currentUser.role === 'Crew' || !appLocationId) return;
-    const currentInventory = loadInventory();
+    const currentInventory = inventory;
+    const target = currentInventory.find((item) => item.id === itemId);
+    if (!target) return;
+    const latestSnapshot = await getDoc(doc(db, 'inventory', itemId));
+    if (!latestSnapshot.exists()) {
+      const withoutDeletedItem = currentInventory.filter((item) => item.id !== itemId);
+      setInventory(withoutDeletedItem);
+      saveInventory(withoutDeletedItem);
+      return;
+    }
+    const latestItem = { id: latestSnapshot.id, ...(latestSnapshot.data() as Omit<InventoryItem, 'id'>) };
     const updatedInventory = currentInventory.map((item) =>
       item.id === itemId
-        ? { ...item, quantity: Math.max(0, item.quantity + delta) }
+        ? { ...latestItem, quantity: Math.max(0, latestItem.quantity + delta) }
         : item,
     );
     // Persist just the changed item to Firestore
@@ -853,17 +863,26 @@ function App() {
 
   const handleEditInventoryQuantity = async (itemId: string) => {
     if (!currentUser || currentUser.role === 'Crew' || !appLocationId) return;
-    const currentInventory = loadInventory();
+    const currentInventory = inventory;
     const target = currentInventory.find((item) => item.id === itemId);
     if (!target) return;
 
-    const response = window.prompt('Enter new quantity for ' + target.name, String(target.quantity));
+    const latestSnapshot = await getDoc(doc(db, 'inventory', itemId));
+    if (!latestSnapshot.exists()) {
+      const withoutDeletedItem = currentInventory.filter((item) => item.id !== itemId);
+      setInventory(withoutDeletedItem);
+      saveInventory(withoutDeletedItem);
+      return;
+    }
+    const latestItem = { id: latestSnapshot.id, ...(latestSnapshot.data() as Omit<InventoryItem, 'id'>) };
+
+    const response = window.prompt('Enter new quantity for ' + latestItem.name, String(latestItem.quantity));
     if (response === null) return;
     const quantity = Number(response);
     if (Number.isNaN(quantity) || quantity < 0) return;
 
     const updatedInventory = currentInventory.map((item) =>
-      item.id === itemId ? { ...item, quantity } : item,
+      item.id === itemId ? { ...latestItem, quantity } : item,
     );
     const updatedItem = updatedInventory.find((i) => i.id === itemId);
     if (updatedItem) {
