@@ -291,13 +291,22 @@ input:focus,select:focus,textarea:focus{outline:none;box-shadow:0 6px 18px rgba(
     display: none !important;
   }
   
-  .sidebar-wrapper,
-  .mobile-overlay {
-    display: none !important;
-  }
-  
-  aside[style*="width:220"] {
+  .app-shell .sidebar-wrapper {
     display: block !important;
+    position: relative;
+    width: 240px;
+    height: 100%;
+    overflow-y: auto;
+    flex: 0 0 240px;
+  }
+
+  .app-shell .sidebar-wrapper .sidebar {
+    width: 100%;
+    min-height: 100%;
+  }
+
+  .app-shell .mobile-overlay {
+    display: none !important;
   }
 }
 
