@@ -44,6 +44,7 @@ service cloud.firestore {
           request.auth.uid == userId
           && request.resource.data.role == resource.data.role
           && request.resource.data.locationId == resource.data.locationId
+          && request.resource.data.locationIds == resource.data.locationIds
           && request.resource.data.permissions == resource.data.permissions
           && request.resource.data.id == resource.data.id
         )

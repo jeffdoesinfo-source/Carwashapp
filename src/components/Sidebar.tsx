@@ -33,12 +33,12 @@ export default function Sidebar({ tabs, activeTab, onSelect, currentUser, locati
       {locations.length > 0 && (currentUser?.role === 'Admin' || (currentUser?.role === 'Manager' && locations.length > 1)) && (
         <div style={{marginTop:12}}>
           <label style={{fontSize:11,color:'var(--muted-text)',display:'block',marginBottom:4}}>Switch location</label>
-          <select 
-            value={selectedLocationId || ''} 
+          <select
+            value={selectedLocationId || (currentUser?.role === 'Manager' ? locations[0]?.id || '' : '')}
             onChange={(e) => onLocationChange?.(e.target.value)}
             style={{width:'100%',fontSize:12}}
           >
-            <option value="">All locations</option>
+            {currentUser?.role === 'Admin' && <option value="">All locations</option>}
             {locations.map((loc) => (
               <option key={loc.id} value={loc.id}>
                 {loc.name}

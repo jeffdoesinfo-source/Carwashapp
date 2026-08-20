@@ -106,6 +106,24 @@ const getDefaultPermissions = (role: Role): Permission[] => {
 
 const getPermissionsForUser = (user: User): Permission[] => getDefaultPermissions(user.role);
 
+const normalizeRole = (value: unknown): Role => {
+  const role = String(value || '').trim().toLowerCase();
+  if (role === 'admin') return 'Admin';
+  if (role === 'manager') return 'Manager';
+  return 'Crew';
+};
+
+const normalizeUserProfile = (data: Record<string, unknown>, uid: string): User => ({
+  id: uid,
+  username: String(data.username || ''),
+  role: normalizeRole(data.role),
+  locationId: String(data.locationId || ''),
+  locationIds: Array.isArray(data.locationIds)
+    ? data.locationIds.map((id) => String(id)).filter(Boolean)
+    : [],
+  permissions: Array.isArray(data.permissions) ? data.permissions as Permission[] : undefined,
+});
+
 const getAssignedLocationIds = (user: User): string[] => Array.from(new Set([
   user.locationId,
   ...(user.role === 'Manager' ? user.locationIds || [] : []),
@@ -282,7 +300,7 @@ function App() {
       try {
         const snap = await getDoc(doc(db, 'users', fbUser.uid));
         if (snap.exists()) {
-          const profile = snap.data() as User;
+          const profile = normalizeUserProfile(snap.data() as Record<string, unknown>, fbUser.uid);
           setCurrentUser(profile);
           setUsernameSetup(profile.username || '');
           setUsernameSetupError('');
@@ -528,7 +546,7 @@ function App() {
         return;
       }
 
-      const userData = snap.data() as User;
+      const userData = normalizeUserProfile(snap.data() as Record<string, unknown>, uid);
       setCurrentUser(userData);
       setStatusMessage('');
       setActiveTab('Dashboard');
@@ -563,10 +581,13 @@ function App() {
   const [locationThresholdEdits, setLocationThresholdEdits] = useState<Record<string, number>>({});
 
   useEffect(() => {
+    if (newUser.role === 'Manager' && newUser.locationId && !newUser.locationIds.includes(newUser.locationId)) {
+      setNewUser((prev) => ({ ...prev, locationIds: Array.from(new Set([...prev.locationIds, prev.locationId])) }));
+    }
     if (!newUser.locationId && locations.length > 0) {
       setNewUser((prev) => ({ ...prev, locationId: locations[0].id }));
     }
-  }, [locations, newUser.locationId]);
+  }, [locations, newUser.locationId, newUser.locationIds, newUser.role]);
 
   const appLocation = locations.find((item) => item.id === appLocationId);
   const hasValidLocationAssignment = currentUser?.role === 'Admin'
