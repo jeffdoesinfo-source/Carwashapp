@@ -98,13 +98,13 @@ const getDefaultPermissions = (role: Role): Permission[] => {
     case 'Manager':
       return ['Dashboard', 'Schedule', 'Inventory', 'Cancel', 'Fraud', 'History'];
     case 'Crew':
-      return ['Dashboard', 'Schedule', 'Inventory', 'Cancel', 'Fraud'];
+      return ['Schedule', 'Inventory', 'Cancel', 'Fraud'];
     default:
       return ['Dashboard'];
   }
 };
 
-const getPermissionsForUser = (user: User): Permission[] => user.permissions ?? getDefaultPermissions(user.role);
+const getPermissionsForUser = (user: User): Permission[] => getDefaultPermissions(user.role);
 
 const hasPermission = (user: User, permission: Permission): boolean => getPermissionsForUser(user).includes(permission);
 
@@ -620,7 +620,7 @@ function App() {
   }, [currentUser, inventory, schedules, locations]);
 
   const reVerifyFraudCheck = async (itemId: string) => {
-    if (!currentUser) return;
+    if (!currentUser || (currentUser.role !== 'Admin' && currentUser.role !== 'Manager')) return;
 
     const currentFraudChecks = loadFraudChecks();
     const target = currentFraudChecks.find((item) => item.id === itemId);
@@ -650,7 +650,7 @@ function App() {
   };
 
   const finalizeFraudCheck = async (itemId: string) => {
-    if (!currentUser) return;
+    if (!currentUser || (currentUser.role !== 'Admin' && currentUser.role !== 'Manager')) return;
     const currentFraudChecks = loadFraudChecks();
     const target = currentFraudChecks.find((item) => item.id === itemId);
     if (!target) return;
@@ -784,7 +784,7 @@ function App() {
 };
 
   const handleAdjustInventory = async (itemId: string, delta: number) => {
-    if (!currentUser || !appLocationId) return;
+    if (!currentUser || currentUser.role === 'Crew' || !appLocationId) return;
     const currentInventory = loadInventory();
     const updatedInventory = currentInventory.map((item) =>
       item.id === itemId
@@ -810,7 +810,7 @@ function App() {
   };
 
   const handleEditInventoryQuantity = async (itemId: string) => {
-    if (!currentUser || !appLocationId) return;
+    if (!currentUser || currentUser.role === 'Crew' || !appLocationId) return;
     const currentInventory = loadInventory();
     const target = currentInventory.find((item) => item.id === itemId);
     if (!target) return;
@@ -1127,11 +1127,13 @@ setSelectedLocationId(newLocation.id);
   };
 
   const toggleDone = async (collectionName: string, itemId: string, currentValue: boolean, label: string, details: string) => {
+    if (!currentUser) return;
+    if (collectionName === 'cancelRequests' && currentUser.role === 'Crew') return;
     if (collectionName === 'schedules') {
       const currentSchedules = loadSchedules();
       const targetItem = currentSchedules.find((item) => item.id === itemId);
       if (!targetItem) return;
-      if (currentUser?.role === 'Crew' && targetItem.type === 'Shift') {
+      if (currentUser.role === 'Crew' && targetItem.type === 'Shift') {
         return;
       }
       const updatedSchedules = currentSchedules.map(item =>
@@ -1541,7 +1543,7 @@ setSelectedLocationId(newLocation.id);
                         <button className="secondary small" disabled>
                           Completed
                         </button>
-                      ) : (
+                      ) : currentUser.role === 'Crew' ? null : (
                         <button
                           className="small"
                           onClick={() =>
@@ -1750,10 +1752,12 @@ setSelectedLocationId(newLocation.id);
                     <td>{item.lowInventoryThreshold}</td>
                     <td>{item.notes}</td>
                     <td>
-                      <button className="small" onClick={() => handleAdjustInventory(item.id, -1)}>-</button>
-                      <button className="small" onClick={() => handleAdjustInventory(item.id, 1)}>+</button>
-                      <button className="small" onClick={() => handleEditInventoryQuantity(item.id)}>Edit</button>
-                      <button className="small danger" onClick={() => handleDeleteInventory(item.id)}>Delete</button>
+                      {currentUser.role !== 'Crew' && <>
+                        <button className="small" onClick={() => handleAdjustInventory(item.id, -1)}>-</button>
+                        <button className="small" onClick={() => handleAdjustInventory(item.id, 1)}>+</button>
+                        <button className="small" onClick={() => handleEditInventoryQuantity(item.id)}>Edit</button>
+                      </>}
+                      {currentUser.role === 'Admin' && <button className="small danger" onClick={() => handleDeleteInventory(item.id)}>Delete</button>}
                     </td>
                   </tr>
                 ))}
@@ -1818,20 +1822,24 @@ setSelectedLocationId(newLocation.id);
                     <td>{item.licensePlate}</td>
                     <td>{item.reason}</td>
                     <td>
-                      <button
-                        className="small"
-                        onClick={() =>
-                          toggleDone(
-                            'cancelRequests',
-                            item.id,
-                            item.done,
-                            'Cancel request',
-                            `${item.customerName} / ${item.licensePlate}`,
-                          )
-                        }
-                      >
-                        {item.done ? 'Done' : 'Mark done'}
-                      </button>
+                      {currentUser.role === 'Crew' ? (
+                        <span className={`badge ${item.done ? 'done' : 'pending'}`}>{item.done ? 'Done' : 'Open'}</span>
+                      ) : (
+                        <button
+                          className="small"
+                          onClick={() =>
+                            toggleDone(
+                              'cancelRequests',
+                              item.id,
+                              item.done,
+                              'Cancel request',
+                              `${item.customerName} / ${item.licensePlate}`,
+                            )
+                          }
+                        >
+                          {item.done ? 'Done' : 'Mark done'}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -1926,7 +1934,7 @@ setSelectedLocationId(newLocation.id);
                       <td>{item.membership || '—'}</td>
                       <td>{item.done ? (item.active ? 'Active' : 'Not Active') : 'Open'}</td>
                       <td>
-                        {needsReVerification ? (
+                        {needsReVerification && (currentUser.role === 'Admin' || currentUser.role === 'Manager') ? (
                           <span className="badge pending" style={{ fontSize: 11 }}>Re-verify needed</span>
                         ) : (
                           <span className="badge done" style={{ fontSize: 11 }}>Verified</span>
@@ -1939,7 +1947,7 @@ setSelectedLocationId(newLocation.id);
                             Verify
                           </button>
                         )}
-                        {!item.done ? (
+                        {!item.done && (currentUser.role === 'Admin' || currentUser.role === 'Manager') ? (
                           <button className="small" onClick={() => finalizeFraudCheck(item.id)}>
                             Mark done
                           </button>
