@@ -98,7 +98,7 @@ const getDefaultPermissions = (role: Role): Permission[] => {
     case 'Manager':
       return ['Dashboard', 'Schedule', 'Inventory', 'Cancel', 'Fraud', 'History'];
     case 'Crew':
-      return ['Schedule', 'Inventory', 'Cancel', 'Fraud'];
+      return ['Dashboard', 'Schedule', 'Inventory', 'Cancel', 'Fraud'];
     default:
       return ['Dashboard'];
   }
@@ -116,7 +116,7 @@ const normalizeRole = (value: unknown): Role => {
 const normalizeUserProfile = (data: Record<string, unknown>, uid: string): User => ({
   id: uid,
   username: String(data.username || ''),
-  role: normalizeRole(data.role),
+  role: normalizeRole(data.role ?? data.Role ?? data.userRole),
   locationId: String(data.locationId || ''),
   locationIds: Array.isArray(data.locationIds)
     ? data.locationIds.map((id) => String(id)).filter(Boolean)
